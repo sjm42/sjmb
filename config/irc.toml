@@ -1,0 +1,24 @@
+# IRC client config
+
+nickname = "sjmb"
+alt_nicks = ["sjmb_", "sjmb__"]
+username = "sjm"
+realname = "sjm bot"
+server = "openirc.snt.utwente.nl"
+port = 6667
+proxy_type = "None"
+use_tls = false
+encoding = "UTF-8"
+channels = ["#chb"]
+user_info = "Testing..."
+version = "irc:git:Rust"
+ping_time = 180
+ping_timeout = 20
+burst_window_length = 8
+max_messages_in_burst = 15
+
+[channel_keys]
+
+[options]
+
+# EOF
