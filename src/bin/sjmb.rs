@@ -20,9 +20,9 @@ async fn main() -> anyhow::Result<()> {
     // trace!("My IRC client is:\n{irc:#?}");
     irc.identify()?;
 
-    let mut o_nick = String::new();
-    let mut o_user = String::new();
-    let mut o_host = String::new();
+    let mut o_nick = "NONE".to_string();
+    let mut o_user = "NONE".to_string();
+    let mut o_host = "NONE".to_string();
     let mut stream = irc.stream()?;
     while let Some(message) = stream.next().await.transpose()? {
         let mynick = irc.current_nickname();
@@ -31,6 +31,10 @@ async fn main() -> anyhow::Result<()> {
             o_nick = nick;
             o_user = user;
             o_host = host;
+        } else {
+            o_nick = "NONE".into();
+            o_user = "NONE".into();
+            o_host = "NONE".into();
         }
 
         match message.command {
