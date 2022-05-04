@@ -1,4 +1,4 @@
-// irssi-urlharvest.rs
+// sjmb.rs
 
 use futures::prelude::*;
 use irc::client::prelude::*;
