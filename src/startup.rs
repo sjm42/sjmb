@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::{env, fs::File, io::BufReader};
 use structopt::StructOpt;
 
-// use super::*;
-
 #[derive(Debug, Clone, StructOpt)]
 pub struct OptsCommon {
     #[structopt(short, long)]
