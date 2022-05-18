@@ -20,9 +20,9 @@ async fn main() -> anyhow::Result<()> {
     // trace!("My IRC client is:\n{irc:#?}");
     irc.identify()?;
 
-    let mut o_nick = "NONE".to_string();
-    let mut o_user = "NONE".to_string();
-    let mut o_host = "NONE".to_string();
+    let mut o_nick;
+    let mut o_user;
+    let mut o_host;
     let mut stream = irc.stream()?;
     while let Some(message) = stream.next().await.transpose()? {
         let mynick = irc.current_nickname();
