@@ -20,21 +20,21 @@ async fn main() -> anyhow::Result<()> {
     // trace!("My IRC client is:\n{irc:#?}");
     irc.identify()?;
 
-    let mut o_nick;
-    let mut o_user;
-    let mut o_host;
     let mut stream = irc.stream()?;
     while let Some(message) = stream.next().await.transpose()? {
         let mynick = irc.current_nickname();
         trace!("Got msg: {message:?}");
+        let msg_nick;
+        let msg_user;
+        let msg_host;
         if let Some(Prefix::Nickname(nick, user, host)) = message.prefix {
-            o_nick = nick;
-            o_user = user;
-            o_host = host;
+            msg_nick = nick;
+            msg_user = user;
+            msg_host = host;
         } else {
-            o_nick = "NONE".into();
-            o_user = "NONE".into();
-            o_host = "NONE".into();
+            msg_nick = "NONE".into();
+            msg_user = "NONE".into();
+            msg_host = "NONE".into();
         }
 
         match message.command {
@@ -43,39 +43,39 @@ async fn main() -> anyhow::Result<()> {
                     // This is a private msg
                     info!(
                         "*Privmsg from {} ({}@{}): {}",
-                        &o_nick, &o_user, &o_host, &text
+                        &msg_nick, &msg_user, &msg_host, &text
                     );
 
                     if text == cfg.v_password {
-                        info!("Giving voice on {} to {}", &cfg.channel, &o_nick);
+                        info!("Giving voice on {} to {}", &cfg.channel, &msg_nick);
                         if let Err(e) = irc.send_mode(
                             &cfg.channel,
-                            &[Mode::Plus(ChannelMode::Voice, Some(o_nick.clone()))],
+                            &[Mode::Plus(ChannelMode::Voice, Some(msg_nick.clone()))],
                         ) {
                             error!("{e}");
                         }
-                        let _ = irc.send_privmsg(&o_nick, "You got +v now.");
+                        irc.send_privmsg(&msg_nick, "You got +v now.").ok();
                     } else if text == cfg.o_password {
-                        info!("Giving ops on {} to {}", &cfg.channel, &o_nick);
+                        info!("Giving ops on {} to {}", &cfg.channel, &msg_nick);
                         if let Err(e) = irc.send_mode(
                             &cfg.channel,
-                            &[Mode::Plus(ChannelMode::Oper, Some(o_nick.clone()))],
+                            &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
                         ) {
                             error!("{e}");
                         }
-                        let _ = irc.send_privmsg(&o_nick, "You got +o now.");
-                    } else if o_nick == cfg.owner && text.starts_with("say ") {
+                        irc.send_privmsg(&msg_nick, "You got +o now.").ok();
+                    } else if text.starts_with("say ") && msg_nick == cfg.owner {
                         let say = &text[4..];
                         info!("{} <{}> {}", &cfg.channel, mynick, say);
-                        let _ = irc.send_privmsg(&cfg.channel, say);
+                        irc.send_privmsg(&cfg.channel, say).ok();
                     }
                 } else {
                     // This is a channel msg
-                    info!("{} <{}> {}", &channel, &o_nick, &text);
+                    info!("{} <{}> {}", &channel, &msg_nick, &text);
                     if text.contains(mynick) {
                         let say = "beep boop wat?";
                         info!("{} <{}> {}", &channel, mynick, say);
-                        let _ = irc.send_privmsg(&channel, say);
+                        irc.send_privmsg(&channel, say).ok();
                     }
                 }
             }
