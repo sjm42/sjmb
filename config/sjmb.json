@@ -1,7 +1,8 @@
 {
     "irc_log_dir": "$HOME/sjmb/logs",
     "owner": "sjm",
-    "channel": "#chb",
-    "o_password": "asdf",
-    "v_password": "zxcv"
+    "channel": "#chanb",
+    "i_password": "qwerty",
+    "o_password": "asdfg",
+    "v_password": "zxcvb"
 }

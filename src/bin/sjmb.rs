@@ -46,13 +46,22 @@ async fn main() -> anyhow::Result<()> {
                         &msg_nick, &msg_user, &msg_host, &text
                     );
 
-                    if text == cfg.v_password {
+                    if text == cfg.i_password {
+                        info!("Inviting {} to {}", &msg_nick, &cfg.channel);
+                        if let Err(e) = irc.send_invite(&msg_nick, &cfg.channel) {
+                            error!("{e}");
+                            continue;
+                        }
+                        irc.send_privmsg(&msg_nick, format!("You may join {} now.", &cfg.channel))
+                            .ok();
+                    } else if text == cfg.v_password {
                         info!("Giving voice on {} to {}", &cfg.channel, &msg_nick);
                         if let Err(e) = irc.send_mode(
                             &cfg.channel,
                             &[Mode::Plus(ChannelMode::Voice, Some(msg_nick.clone()))],
                         ) {
                             error!("{e}");
+                            continue;
                         }
                         irc.send_privmsg(&msg_nick, "You got +v now.").ok();
                     } else if text == cfg.o_password {
@@ -62,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
                             &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
                         ) {
                             error!("{e}");
+                            continue;
                         }
                         irc.send_privmsg(&msg_nick, "You got +o now.").ok();
                     } else if text.starts_with("say ") && msg_nick == cfg.owner {

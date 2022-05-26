@@ -1,9 +1,9 @@
 # IRC client config
 
-nickname = "sjmb"
-alt_nicks = ["sjmb_", "sjmb__"]
-username = "sjm"
-realname = "sjm bot"
+nickname = "mybot1"
+alt_nicks = ["mybot2_", "mybot3__"]
+username = "mybot"
+realname = "my bot"
 server = "openirc.snt.utwente.nl"
 port = 6667
 proxy_type = "None"

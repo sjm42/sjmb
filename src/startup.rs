@@ -43,8 +43,9 @@ pub struct ConfigCommon {
     pub irc_log_dir: String,
     pub owner: String,
     pub channel: String,
-    pub o_password: String,
-    pub v_password: String,
+    pub i_password: String, // magic word to get /invite
+    pub o_password: String, // magic word to get +o
+    pub v_password: String, // magic word to get +v
 }
 impl ConfigCommon {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
