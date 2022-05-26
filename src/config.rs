@@ -48,8 +48,9 @@ impl BotRuntimeConfig {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
         let common = ConfigCommon::new(opts)?;
         let o_acl = OAcl::new(&common)?;
-        debug!("My ACL:\n{:#?}", &o_acl.acl);
+        info!("Compiling ACL regex array...");
         let o_acl_re = OAcl::to_re(&o_acl)?;
+        info!("Runtime config successfully created.");
         Ok(Self {
             common,
             o_acl,
@@ -71,7 +72,7 @@ pub struct ConfigCommon {
 impl ConfigCommon {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
         let file = &opts.bot_config;
-        debug!("Reading config file {file}");
+        info!("Reading config file {file}");
         let mut config: ConfigCommon = serde_json::from_reader(BufReader::new(File::open(file)?))?;
         config.irc_log_dir = shellexpand::full(&config.irc_log_dir)?.into_owned();
         config.mode_o_acl = shellexpand::full(&config.mode_o_acl)?.into_owned();
@@ -87,10 +88,9 @@ pub struct OAcl {
 impl OAcl {
     pub fn new(cfg: &ConfigCommon) -> anyhow::Result<Self> {
         let file = &cfg.mode_o_acl;
-        debug!("Reading o_acl file {file}");
+        info!("Reading o_acl file {file}");
         let o_acl = serde_json::from_reader(BufReader::new(File::open(file)?))?;
         debug!("New OAcl:\n{o_acl:#?}");
-        debug!("Short ACL: {o_acl:?}");
         Ok(o_acl)
     }
     pub fn to_re(&self) -> anyhow::Result<Vec<Regex>> {

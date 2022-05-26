@@ -78,15 +78,16 @@ async fn main() -> anyhow::Result<()> {
                     } else if msg_nick == cfg.owner {
                         if text == "reload" {
                             // *** Try reloading all runtime configs ***
-                            info!("*** RELOADING CONFIG ***");
+                            error!("*** RELOADING CONFIG ***");
                             let new_cfg = match BotRuntimeConfig::new(&opts) {
                                 Ok(c) => c,
                                 Err(e) => {
-                                    error!("Cannot parse runtime config: {e}");
+                                    error!("Could not parse runtime config:\n{e}");
+                                    error!("*** Reload failed.");
                                     continue;
                                 }
                             };
-                            info!("Reload successful.");
+                            info!("*** Reload successful.");
                             bot_cfg = new_cfg;
                         } else if let Some(say) = text.strip_prefix("say ") {
                             info!("{cfg_channel} <{mynick}> {say}");
