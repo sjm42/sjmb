@@ -47,9 +47,8 @@ pub struct BotRuntimeConfig {
 impl BotRuntimeConfig {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
         let common = ConfigCommon::new(opts)?;
-        debug!("Common config:\n{:#?}", &common);
         let o_acl = OAcl::new(&common)?;
-        debug!("ACL:\n{:#?}", &o_acl);
+        debug!("My ACL:\n{:#?}", &o_acl.acl);
         let o_acl_re = OAcl::to_re(&o_acl)?;
         Ok(Self {
             common,
@@ -76,7 +75,7 @@ impl ConfigCommon {
         let mut config: ConfigCommon = serde_json::from_reader(BufReader::new(File::open(file)?))?;
         config.irc_log_dir = shellexpand::full(&config.irc_log_dir)?.into_owned();
         config.mode_o_acl = shellexpand::full(&config.mode_o_acl)?.into_owned();
-        debug!("New config:\n{config:#?}");
+        debug!("New ConfigCommon:\n{config:#?}");
         Ok(config)
     }
 }
@@ -90,7 +89,7 @@ impl OAcl {
         let file = &cfg.mode_o_acl;
         debug!("Reading o_acl file {file}");
         let o_acl = serde_json::from_reader(BufReader::new(File::open(file)?))?;
-        debug!("New o_acl:\n{o_acl:#?}");
+        debug!("New OAcl:\n{o_acl:#?}");
         Ok(o_acl)
     }
     pub fn to_re(&self) -> anyhow::Result<Vec<Regex>> {
