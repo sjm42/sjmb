@@ -90,6 +90,7 @@ impl OAcl {
         debug!("Reading o_acl file {file}");
         let o_acl = serde_json::from_reader(BufReader::new(File::open(file)?))?;
         debug!("New OAcl:\n{o_acl:#?}");
+        debug!("Short ACL: {o_acl:?}");
         Ok(o_acl)
     }
     pub fn to_re(&self) -> anyhow::Result<Vec<Regex>> {

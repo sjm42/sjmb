@@ -2,8 +2,8 @@
     "irc_log_dir": "$HOME/sjmb/logs",
     "owner": "sjm",
     "channel": "#chanb",
-    "i_password": "qwerty",
-    "o_password": "asdfg",
-    "v_password": "zxcvb",
-    "o_acl": "$HOME/sjmb/config/o_acl.json"
+    "cmd_invite": "inviteme",
+    "cmd_mode_o": "opme",
+    "cmd_mode_v": "zxcvb",
+    "mode_o_acl": "$HOME/sjmb/config/o_acl.json"
 }

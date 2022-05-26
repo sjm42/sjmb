@@ -3,6 +3,7 @@
 use futures::prelude::*;
 use irc::client::prelude::*;
 use log::*;
+use std::fmt::Display;
 use structopt::StructOpt;
 
 use sjmb::*;
@@ -58,18 +59,11 @@ async fn main() -> anyhow::Result<()> {
                         irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now."))
                             .ok();
                     } else if text == cfg.cmd_mode_v {
-                        info!("Giving voice on {cfg_channel} to {msg_nick}");
-                        if let Err(e) = irc.send_mode(
-                            cfg_channel,
-                            &[Mode::Plus(ChannelMode::Voice, Some(msg_nick.clone()))],
-                        ) {
-                            error!("{e}");
-                            continue;
-                        }
-                        irc.send_privmsg(&msg_nick, "You got +v now.").ok();
+                        mode_v(&irc, cfg_channel, &msg_nick);
                     } else if text == cfg.cmd_mode_o {
                         if !OAcl::re_match(&bot_cfg.o_acl_re, &userhost) {
                             info!("Denied +o for {userhost}, ACL check failed.");
+                            mode_v(&irc, cfg_channel, &msg_nick);
                             continue;
                         }
                         info!("Giving ops on {cfg_channel} to {msg_nick}");
@@ -84,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
                     } else if msg_nick == cfg.owner {
                         if text == "reload" {
                             // *** Try reloading all runtime configs ***
-
+                            info!("*** RELOADING CONFIG ***");
                             let new_cfg = match BotRuntimeConfig::new(&opts) {
                                 Ok(c) => c,
                                 Err(e) => {
@@ -118,5 +112,20 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn mode_v<S>(irc: &Client, channel: S, nick: S)
+where
+    S: AsRef<str> + Display,
+{
+    info!("Giving voice on {channel} to {nick}");
+    if let Err(e) = irc.send_mode(
+        channel,
+        &[Mode::Plus(ChannelMode::Voice, Some(nick.to_string()))],
+    ) {
+        error!("{e}");
+        return;
+    }
+    irc.send_privmsg(nick.as_ref(), "You got +v now.").ok();
 }
 // EOF
