@@ -4,5 +4,6 @@
     "channel": "#chanb",
     "i_password": "qwerty",
     "o_password": "asdfg",
-    "v_password": "zxcvb"
+    "v_password": "zxcvb",
+    "o_acl": "$HOME/sjmb/config/o_acl.json"
 }

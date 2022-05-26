@@ -13,16 +13,18 @@ async fn main() -> anyhow::Result<()> {
     opts.finish()?;
     start_pgm(&opts, "sjmb");
     info!("Starting up");
-    let cfg = ConfigCommon::new(&opts)?;
-    debug!("Config:\n{:#?}", &cfg);
 
-    let mut irc = Client::new(opts.irc_config).await?;
+    let mut bot_cfg = BotRuntimeConfig::new(&opts)?;
+
+    let mut irc = Client::new(&opts.irc_config).await?;
     // trace!("My IRC client is:\n{irc:#?}");
     irc.identify()?;
 
     let mut stream = irc.stream()?;
     while let Some(message) = stream.next().await.transpose()? {
+        let cfg = &bot_cfg.common;
         let mynick = irc.current_nickname();
+        let cfg_channel = &cfg.channel;
         trace!("Got msg: {message:?}");
         let msg_nick;
         let msg_user;
@@ -36,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
             msg_user = "NONE".into();
             msg_host = "NONE".into();
         }
+        let userhost = format!("{msg_user}@{msg_host}");
 
         match message.command {
             Command::PRIVMSG(channel, text) => {
@@ -46,45 +49,62 @@ async fn main() -> anyhow::Result<()> {
                         &msg_nick, &msg_user, &msg_host, &text
                     );
 
-                    if text == cfg.i_password {
-                        info!("Inviting {} to {}", &msg_nick, &cfg.channel);
-                        if let Err(e) = irc.send_invite(&msg_nick, &cfg.channel) {
+                    if text == cfg.cmd_invite {
+                        info!("Inviting {msg_nick} to {cfg_channel}");
+                        if let Err(e) = irc.send_invite(&msg_nick, cfg_channel) {
                             error!("{e}");
                             continue;
                         }
-                        irc.send_privmsg(&msg_nick, format!("You may join {} now.", &cfg.channel))
+                        irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now."))
                             .ok();
-                    } else if text == cfg.v_password {
-                        info!("Giving voice on {} to {}", &cfg.channel, &msg_nick);
+                    } else if text == cfg.cmd_mode_v {
+                        info!("Giving voice on {cfg_channel} to {msg_nick}");
                         if let Err(e) = irc.send_mode(
-                            &cfg.channel,
+                            cfg_channel,
                             &[Mode::Plus(ChannelMode::Voice, Some(msg_nick.clone()))],
                         ) {
                             error!("{e}");
                             continue;
                         }
                         irc.send_privmsg(&msg_nick, "You got +v now.").ok();
-                    } else if text == cfg.o_password {
-                        info!("Giving ops on {} to {}", &cfg.channel, &msg_nick);
+                    } else if text == cfg.cmd_mode_o {
+                        if !OAcl::re_match(&bot_cfg.o_acl_re, &userhost) {
+                            info!("Denied +o for {userhost}, ACL check failed.");
+                            continue;
+                        }
+                        info!("Giving ops on {cfg_channel} to {msg_nick}");
                         if let Err(e) = irc.send_mode(
-                            &cfg.channel,
+                            cfg_channel,
                             &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
                         ) {
                             error!("{e}");
                             continue;
                         }
                         irc.send_privmsg(&msg_nick, "You got +o now.").ok();
-                    } else if text.starts_with("say ") && msg_nick == cfg.owner {
-                        let say = &text[4..];
-                        info!("{} <{}> {}", &cfg.channel, mynick, say);
-                        irc.send_privmsg(&cfg.channel, say).ok();
+                    } else if msg_nick == cfg.owner {
+                        if text == "reload" {
+                            // *** Try reloading all runtime configs ***
+
+                            let new_cfg = match BotRuntimeConfig::new(&opts) {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    error!("Cannot parse runtime config: {e}");
+                                    continue;
+                                }
+                            };
+                            info!("Reload successful.");
+                            bot_cfg = new_cfg;
+                        } else if let Some(say) = text.strip_prefix("say ") {
+                            info!("{cfg_channel} <{mynick}> {say}");
+                            irc.send_privmsg(cfg_channel, say).ok();
+                        }
                     }
                 } else {
                     // This is a channel msg
-                    info!("{} <{}> {}", &channel, &msg_nick, &text);
+                    info!("{channel} <{msg_nick}> {text}");
                     if text.contains(mynick) {
                         let say = "beep boop wat?";
-                        info!("{} <{}> {}", &channel, mynick, say);
+                        info!("{channel} <{mynick}> {say}");
                         irc.send_privmsg(&channel, say).ok();
                     }
                 }
