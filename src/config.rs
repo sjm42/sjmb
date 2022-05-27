@@ -1,5 +1,6 @@
 // config.rs
 
+use chrono::*;
 use log::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -46,10 +47,20 @@ pub struct BotRuntimeConfig {
 }
 impl BotRuntimeConfig {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
+        // read & parse json main config
         let common = ConfigCommon::new(opts)?;
+        // read & parse mode +o ACL in json format
         let o_acl = OAcl::new(&common)?;
+
+        // pre-compile the ACL regex array
         info!("Compiling ACL regex array...");
+        let now = Utc::now();
         let o_acl_re = OAcl::to_re(&o_acl)?;
+        info!(
+            "Regex pre-compilation took {} ms.",
+            Utc::now().signed_duration_since(now).num_milliseconds()
+        );
+
         info!("Runtime config successfully created.");
         Ok(Self {
             common,
