@@ -47,6 +47,7 @@ pub struct BotRuntimeConfig {
 }
 impl BotRuntimeConfig {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
+        let now1 = Utc::now();
         // read & parse json main config
         let common = ConfigCommon::new(opts)?;
         // read & parse mode +o ACL in json format
@@ -54,14 +55,17 @@ impl BotRuntimeConfig {
 
         // pre-compile the ACL regex array
         info!("Compiling ACL regex array...");
-        let now = Utc::now();
+        let now2 = Utc::now();
         let o_acl_re = OAcl::to_re(&o_acl)?;
         info!(
             "Regex pre-compilation took {} ms.",
-            Utc::now().signed_duration_since(now).num_milliseconds()
+            Utc::now().signed_duration_since(now2).num_milliseconds()
         );
 
-        info!("Runtime config successfully created.");
+        info!(
+            "New runtime config successfully created in {} ms.",
+            Utc::now().signed_duration_since(now1).num_milliseconds()
+        );
         Ok(Self {
             common,
             o_acl,
