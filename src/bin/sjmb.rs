@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
                 if channel == mynick {
                     // This is a private msg
                     info!(
-                        "*Privmsg from {} ({}@{}): {}",
+                        "*** Privmsg from {} ({}@{}): {}",
                         &msg_nick, &msg_user, &msg_host, &text
                     );
 
@@ -56,8 +56,7 @@ async fn main() -> anyhow::Result<()> {
                             error!("{e}");
                             continue;
                         }
-                        irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now."))
-                            .ok();
+                        // irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now.")).ok();
                     } else if text == cfg.cmd_mode_v {
                         mode_v(&irc, cfg_channel, &msg_nick);
                     } else if text == cfg.cmd_mode_o {
@@ -74,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
                             error!("{e}");
                             continue;
                         }
-                        irc.send_privmsg(&msg_nick, "You got +o now.").ok();
+                        // irc.send_privmsg(&msg_nick, "You got +o now.").ok();
                     } else if msg_nick == cfg.owner {
                         if text == "reload" {
                             // *** Try reloading all runtime configs ***
@@ -96,12 +95,14 @@ async fn main() -> anyhow::Result<()> {
                     }
                 } else {
                     // This is a channel msg
-                    info!("{channel} <{msg_nick}> {text}");
+                    debug!("{channel} <{msg_nick}> {text}");
+                    /*
                     if text.contains(mynick) {
-                        let say = "beep boop wat?";
+                        let say = "Hmm?";
                         info!("{channel} <{mynick}> {say}");
                         irc.send_privmsg(&channel, say).ok();
                     }
+                    */
                 }
             }
             Command::Response(resp, v) => {
@@ -125,8 +126,8 @@ where
         &[Mode::Plus(ChannelMode::Voice, Some(nick.to_string()))],
     ) {
         error!("{e}");
-        return;
+        // return;
     }
-    irc.send_privmsg(nick.as_ref(), "You got +v now.").ok();
+    // irc.send_privmsg(nick.as_ref(), "You got +v now.").ok();
 }
 // EOF
