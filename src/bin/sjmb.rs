@@ -50,31 +50,9 @@ async fn main() -> anyhow::Result<()> {
                         &msg_nick, &msg_user, &msg_host, &text
                     );
 
-                    if text == cfg.cmd_invite {
-                        info!("Inviting {msg_nick} to {cfg_channel}");
-                        if let Err(e) = irc.send_invite(&msg_nick, cfg_channel) {
-                            error!("{e}");
-                            continue;
-                        }
-                        // irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now.")).ok();
-                    } else if text == cfg.cmd_mode_v {
-                        mode_v(&irc, cfg_channel, &msg_nick);
-                    } else if text == cfg.cmd_mode_o {
-                        if !OAcl::re_match(&bot_cfg.o_acl_re, &userhost) {
-                            info!("Denied +o for {userhost}, ACL check failed.");
-                            mode_v(&irc, cfg_channel, &msg_nick);
-                            continue;
-                        }
-                        info!("Giving ops on {cfg_channel} to {msg_nick}");
-                        if let Err(e) = irc.send_mode(
-                            cfg_channel,
-                            &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
-                        ) {
-                            error!("{e}");
-                            continue;
-                        }
-                        // irc.send_privmsg(&msg_nick, "You got +o now.").ok();
-                    } else if msg_nick == cfg.owner {
+                    if msg_nick == cfg.owner {
+                        // Owner commands
+
                         if text == "reload" {
                             // *** Try reloading all runtime configs ***
                             error!("*** RELOADING CONFIG ***");
@@ -88,9 +66,44 @@ async fn main() -> anyhow::Result<()> {
                             };
                             info!("*** Reload successful.");
                             bot_cfg = new_cfg;
+                        } else if text == "acl" {
+                            info!("Dumping ACL");
+                            irc.send_privmsg(&msg_nick, "My +o ACL:").ok();
+                            for s in &bot_cfg.o_acl.acl {
+                                irc.send_privmsg(&msg_nick, s).ok();
+                            }
+                            irc.send_privmsg(&msg_nick, "<EOF>").ok();
                         } else if let Some(say) = text.strip_prefix("say ") {
                             info!("{cfg_channel} <{mynick}> {say}");
                             irc.send_privmsg(cfg_channel, say).ok();
+                        }
+                    } else {
+                        // Public commands
+
+                        if text == cfg.cmd_invite {
+                            info!("Inviting {msg_nick} to {cfg_channel}");
+                            if let Err(e) = irc.send_invite(&msg_nick, cfg_channel) {
+                                error!("{e}");
+                                continue;
+                            }
+                            // irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now.")).ok();
+                        } else if text == cfg.cmd_mode_v {
+                            mode_v(&irc, cfg_channel, &msg_nick);
+                        } else if text == cfg.cmd_mode_o {
+                            if !OAcl::re_match(&bot_cfg.o_acl_re, &userhost) {
+                                info!("ACL check failed for {userhost}. Fallback to +v.");
+                                mode_v(&irc, cfg_channel, &msg_nick);
+                                continue;
+                            }
+                            info!("Giving ops on {cfg_channel} to {msg_nick}");
+                            if let Err(e) = irc.send_mode(
+                                cfg_channel,
+                                &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
+                            ) {
+                                error!("{e}");
+                                continue;
+                            }
+                            // irc.send_privmsg(&msg_nick, "You got +o now.").ok();
                         }
                     }
                 } else {
