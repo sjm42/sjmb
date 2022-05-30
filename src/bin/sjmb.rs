@@ -140,7 +140,7 @@ async fn main() -> anyhow::Result<()> {
             Command::JOIN(ch, _, _) => {
                 info!("JOIN <{msg_nick}> {userhost} {ch}");
                 if msg_nick == mynick {
-                    info!("Ignore join self");
+                    // Ignore join self :p
                     continue;
                 }
 
