@@ -108,11 +108,10 @@ async fn main() -> anyhow::Result<()> {
                         match acl_resp {
                             Some((i, s)) => {
                                 info!("ACL match {userhost} at index {i}: {s}");
-                                info!("Giving ops on {cfg_channel} to {msg_nick}");
                                 mode_o(&irc, cfg_channel, &msg_nick);
                             }
                             None => {
-                                info!("ACL check failed for {userhost}. Fallback +v on {cfg_channel} to {msg_nick}");
+                                info!("ACL check failed for {userhost}. Fallback +v.");
                                 mode_v(&irc, cfg_channel, &msg_nick);
                             }
                         }
@@ -148,7 +147,7 @@ async fn main() -> anyhow::Result<()> {
                 let now1 = Utc::now();
                 let acl_resp = bot_cfg.auto_o_acl.re_match(&userhost);
                 info!(
-                    "JOIN ACL check took {} µs.",
+                    "ACL check took {} µs.",
                     Utc::now()
                         .signed_duration_since(now1)
                         .num_microseconds()
@@ -156,8 +155,7 @@ async fn main() -> anyhow::Result<()> {
                 );
 
                 if let Some((i, s)) = acl_resp {
-                    info!("JOIN ACL match {userhost} at index {i}: {s}");
-                    info!("Auto-op on {cfg_channel} to {msg_nick}");
+                    info!("JOIN auto-op: ACL match {userhost} at index {i}: {s}");
                     mode_o(&irc, cfg_channel, &msg_nick);
                 }
             }
