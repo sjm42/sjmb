@@ -1,5 +1,6 @@
 // sjmb.rs
 
+use chrono::*;
 use futures::prelude::*;
 use irc::client::prelude::*;
 use log::*;
@@ -94,7 +95,17 @@ async fn main() -> anyhow::Result<()> {
                     } else if text == cfg.cmd_mode_v {
                         mode_v(&irc, cfg_channel, &msg_nick);
                     } else if text == cfg.cmd_mode_o {
-                        match bot_cfg.acl_match(&userhost) {
+                        let now1 = Utc::now();
+                        let acl_resp = bot_cfg.acl_match(&userhost);
+                        info!(
+                            "ACL check took {} µs.",
+                            Utc::now()
+                                .signed_duration_since(now1)
+                                .num_microseconds()
+                                .unwrap_or(0)
+                        );
+
+                        match acl_resp {
                             Some((i, s)) => {
                                 info!("ACL match {userhost} at index {i}: {s}");
                                 info!("Giving ops on {cfg_channel} to {msg_nick}");
