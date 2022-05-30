@@ -157,7 +157,7 @@ async fn main() -> anyhow::Result<()> {
 
                 if let Some((i, s)) = acl_resp {
                     info!("JOIN ACL match {userhost} at index {i}: {s}");
-                    info!("Giving ops on {cfg_channel} to {msg_nick}");
+                    info!("Auto-op on {cfg_channel} to {msg_nick}");
                     mode_o(&irc, cfg_channel, &msg_nick);
                 }
             }
