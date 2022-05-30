@@ -56,16 +56,17 @@ async fn main() -> anyhow::Result<()> {
                         if text == "reload" {
                             // *** Try reloading all runtime configs ***
                             error!("*** RELOADING CONFIG ***");
-                            let new_cfg = match BotRuntimeConfig::new(&opts) {
-                                Ok(c) => c,
+                            match BotRuntimeConfig::new(&opts) {
+                                Ok(c) => {
+                                    info!("*** Reload successful.");
+                                    bot_cfg = c;
+                                }
                                 Err(e) => {
                                     error!("Could not parse runtime config:\n{e}");
                                     error!("*** Reload failed.");
-                                    continue;
                                 }
                             };
-                            info!("*** Reload successful.");
-                            bot_cfg = new_cfg;
+                            continue;
                         } else if text == "acl" {
                             info!("Dumping ACL");
                             irc.send_privmsg(&msg_nick, "My +o ACL:").ok();
@@ -73,55 +74,61 @@ async fn main() -> anyhow::Result<()> {
                                 irc.send_privmsg(&msg_nick, s).ok();
                             }
                             irc.send_privmsg(&msg_nick, "<EOF>").ok();
+                            continue;
                         } else if let Some(say) = text.strip_prefix("say ") {
                             info!("{cfg_channel} <{mynick}> {say}");
                             irc.send_privmsg(cfg_channel, say).ok();
-                        }
-                    } else {
-                        // Public commands
-
-                        if text == cfg.cmd_invite {
-                            info!("Inviting {msg_nick} to {cfg_channel}");
-                            if let Err(e) = irc.send_invite(&msg_nick, cfg_channel) {
-                                error!("{e}");
-                                continue;
-                            }
-                            // irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now.")).ok();
-                        } else if text == cfg.cmd_mode_v {
-                            mode_v(&irc, cfg_channel, &msg_nick);
-                        } else if text == cfg.cmd_mode_o {
-                            match bot_cfg.acl_match(&userhost) {
-                                Some((i, s)) => {
-                                    info!("ACL match {userhost} at line {}: {}", i + 1, &s);
-                                    info!("Giving ops on {cfg_channel} to {msg_nick}");
-                                    if let Err(e) = irc.send_mode(
-                                        cfg_channel,
-                                        &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
-                                    ) {
-                                        error!("{e}");
-                                        continue;
-                                    }
-                                }
-                                None => {
-                                    info!("ACL check failed for {userhost}. Fallback +v on {cfg_channel} to {msg_nick}");
-                                    mode_v(&irc, cfg_channel, &msg_nick);
-                                }
-                            }
-
-                            // irc.send_privmsg(&msg_nick, "You got +o now.").ok();
+                            continue;
                         }
                     }
-                } else {
-                    // This is a channel msg
-                    debug!("{channel} <{msg_nick}> {text}");
-                    /*
-                    if text.contains(mynick) {
-                        let say = "Hmm?";
-                        info!("{channel} <{mynick}> {say}");
-                        irc.send_privmsg(&channel, say).ok();
+
+                    // Public commands
+
+                    if text == cfg.cmd_invite {
+                        info!("Inviting {msg_nick} to {cfg_channel}");
+                        if let Err(e) = irc.send_invite(&msg_nick, cfg_channel) {
+                            error!("{e}");
+                            continue;
+                        }
+                        // irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now.")).ok();
+                    } else if text == cfg.cmd_mode_v {
+                        mode_v(&irc, cfg_channel, &msg_nick);
+                    } else if text == cfg.cmd_mode_o {
+                        match bot_cfg.acl_match(&userhost) {
+                            Some((i, s)) => {
+                                info!("ACL match {userhost} at line {}: {}", i + 1, &s);
+                                info!("Giving ops on {cfg_channel} to {msg_nick}");
+                                if let Err(e) = irc.send_mode(
+                                    cfg_channel,
+                                    &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
+                                ) {
+                                    error!("{e}");
+                                    continue;
+                                }
+                            }
+                            None => {
+                                info!("ACL check failed for {userhost}. Fallback +v on {cfg_channel} to {msg_nick}");
+                                mode_v(&irc, cfg_channel, &msg_nick);
+                            }
+                        }
+
+                        // irc.send_privmsg(&msg_nick, "You got +o now.").ok();
                     }
-                    */
+
+                    // All other private messages are ignored
+                    continue;
                 }
+
+                // This is a channel msg
+                debug!("{channel} <{msg_nick}> {text}");
+
+                /*
+                if text.contains(mynick) {
+                    let say = "Hmm?";
+                    info!("{channel} <{mynick}> {say}");
+                    irc.send_privmsg(&channel, say).ok();
+                }
+                */
             }
             Command::Response(resp, v) => {
                 debug!("Got response type {resp:?} contents: {v:?}");
