@@ -54,7 +54,7 @@ impl BotRuntimeConfig {
         let o_acl = OAcl::new(&common)?;
 
         // pre-compile the ACL regex array
-        info!("Compiling ACL regex array...");
+        info!("Compiling ACL regex array (size {})...", o_acl.acl.len());
         let now2 = Utc::now();
         let o_acl_re = OAcl::to_re(&o_acl)?;
         info!(
