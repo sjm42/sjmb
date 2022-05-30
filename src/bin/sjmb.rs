@@ -144,6 +144,12 @@ async fn main() -> anyhow::Result<()> {
             Command::Response(resp, v) => {
                 debug!("Got response type {resp:?} contents: {v:?}");
             }
+            Command::JOIN(ch, foo1, foo2) => {
+                debug!(
+                    "JOIN <{msg_nick}> {msg_user}@{msg_host}: {} {:?} {:?}",
+                    ch, foo1, foo2
+                );
+            }
             cmd => {
                 debug!("Unhandled command: {cmd:?}")
             }
