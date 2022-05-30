@@ -106,17 +106,11 @@ pub struct JAcl {
 }
 impl JAcl {
     pub fn new(file: &str) -> anyhow::Result<Self> {
-        info!("Reading o_acl file {file}");
-        let acl = serde_json::from_reader(BufReader::new(File::open(file)?))?;
-        debug!("New OAcl:\n{acl:#?}");
+        info!("Reading json acl file {file}");
+        let acl: Self = serde_json::from_reader(BufReader::new(File::open(file)?))?;
+        info!("Got {} entries.", acl.acl.len());
+        debug!("New JAcl:\n{acl:#?}");
         Ok(acl)
-    }
-    pub fn to_re(&self) -> anyhow::Result<Vec<Regex>> {
-        let mut re_vec = Vec::new();
-        for s in &self.acl {
-            re_vec.push(Regex::new(s)?);
-        }
-        Ok(re_vec)
     }
 }
 
@@ -127,7 +121,7 @@ pub struct ReAcl {
 impl ReAcl {
     pub fn new(file: &str) -> anyhow::Result<Self> {
         let jacl = JAcl::new(file)?;
-        let mut re_vec = Vec::new();
+        let mut re_vec = Vec::with_capacity(jacl.acl.len());
         for s in &jacl.acl {
             re_vec.push(Regex::new(s)?);
         }
