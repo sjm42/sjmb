@@ -5,5 +5,6 @@
     "cmd_invite": "inviteme",
     "cmd_mode_o": "opme",
     "cmd_mode_v": "zxcvb",
-    "mode_o_acl": "$HOME/sjmb/config/o_acl.json"
+    "mode_o_acl": "$HOME/sjmb/config/mode_o_acl.json",
+    "auto_o_acl": "$HOME/sjmb/config/auto_o_acl.json"
 }

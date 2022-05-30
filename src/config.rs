@@ -40,52 +40,6 @@ impl OptsCommon {
     }
 }
 
-pub struct BotRuntimeConfig {
-    pub common: ConfigCommon,
-    pub o_acl: OAcl,
-    pub o_acl_re: Vec<Regex>,
-}
-impl BotRuntimeConfig {
-    pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
-        let now1 = Utc::now();
-        // read & parse json main config
-        let common = ConfigCommon::new(opts)?;
-        // read & parse mode +o ACL in json format
-        let o_acl = OAcl::new(&common)?;
-
-        // pre-compile the ACL regex array
-        info!("Compiling ACL regex array (size {})...", o_acl.acl.len());
-        let now2 = Utc::now();
-        let o_acl_re = OAcl::to_re(&o_acl)?;
-        info!(
-            "Regex pre-compilation took {} ms.",
-            Utc::now().signed_duration_since(now2).num_milliseconds()
-        );
-
-        info!(
-            "New runtime config successfully created in {} ms.",
-            Utc::now().signed_duration_since(now1).num_milliseconds()
-        );
-        Ok(Self {
-            common,
-            o_acl,
-            o_acl_re,
-        })
-    }
-    pub fn acl_match<S>(&self, userhost: S) -> Option<(usize, String)>
-    where
-        S: AsRef<str>,
-    {
-        for (i, re) in self.o_acl_re.iter().enumerate() {
-            if re.is_match(userhost.as_ref()) {
-                // return index of match along with the matched regex string
-                return Some((i, self.o_acl.acl[i].to_string()));
-            }
-        }
-        None
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConfigCommon {
     pub irc_log_dir: String,
@@ -95,6 +49,7 @@ pub struct ConfigCommon {
     pub cmd_mode_o: String, // magic word to get +o
     pub cmd_mode_v: String, // magic word to get +v
     pub mode_o_acl: String, // json file for +o ACL
+    pub auto_o_acl: String, // json file for auto-op ACL
 }
 impl ConfigCommon {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
@@ -108,17 +63,52 @@ impl ConfigCommon {
     }
 }
 
+pub struct BotRuntimeConfig {
+    pub common: ConfigCommon,
+    pub mode_o_acl: ReAcl,
+    pub auto_o_acl: ReAcl,
+}
+impl BotRuntimeConfig {
+    pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
+        let now1 = Utc::now();
+        // read & parse json main config
+        let common = ConfigCommon::new(opts)?;
+
+        // pre-compile the ACL regex arrays
+        info!("Reading regex array ACLs...");
+        let now2 = Utc::now();
+
+        // read & parse ACLs in json format
+        let mode_o_acl = ReAcl::new(&common.mode_o_acl)?;
+        let auto_o_acl = ReAcl::new(&common.auto_o_acl)?;
+
+        info!(
+            "Regex ACL preparations took {} ms.",
+            Utc::now().signed_duration_since(now2).num_milliseconds()
+        );
+
+        info!(
+            "New runtime config successfully created in {} ms.",
+            Utc::now().signed_duration_since(now1).num_milliseconds()
+        );
+        Ok(Self {
+            common,
+            mode_o_acl,
+            auto_o_acl,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OAcl {
+pub struct JAcl {
     pub acl: Vec<String>,
 }
-impl OAcl {
-    pub fn new(cfg: &ConfigCommon) -> anyhow::Result<Self> {
-        let file = &cfg.mode_o_acl;
+impl JAcl {
+    pub fn new(file: &str) -> anyhow::Result<Self> {
         info!("Reading o_acl file {file}");
-        let o_acl = serde_json::from_reader(BufReader::new(File::open(file)?))?;
-        debug!("New OAcl:\n{o_acl:#?}");
-        Ok(o_acl)
+        let acl = serde_json::from_reader(BufReader::new(File::open(file)?))?;
+        debug!("New OAcl:\n{acl:#?}");
+        Ok(acl)
     }
     pub fn to_re(&self) -> anyhow::Result<Vec<Regex>> {
         let mut re_vec = Vec::new();
@@ -126,6 +116,36 @@ impl OAcl {
             re_vec.push(Regex::new(s)?);
         }
         Ok(re_vec)
+    }
+}
+
+pub struct ReAcl {
+    pub acl_str: Vec<String>,
+    pub acl_re: Vec<Regex>,
+}
+impl ReAcl {
+    pub fn new(file: &str) -> anyhow::Result<Self> {
+        let jacl = JAcl::new(file)?;
+        let mut re_vec = Vec::new();
+        for s in &jacl.acl {
+            re_vec.push(Regex::new(s)?);
+        }
+        Ok(Self {
+            acl_str: jacl.acl,
+            acl_re: re_vec,
+        })
+    }
+    pub fn re_match<S>(&self, userhost: S) -> Option<(usize, String)>
+    where
+        S: AsRef<str>,
+    {
+        for (i, re) in self.acl_re.iter().enumerate() {
+            if re.is_match(userhost.as_ref()) {
+                // return index of match along with the matched regex string
+                return Some((i, self.acl_str[i].to_string()));
+            }
+        }
+        None
     }
 }
 

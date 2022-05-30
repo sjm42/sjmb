@@ -68,10 +68,10 @@ async fn main() -> anyhow::Result<()> {
                                 }
                             };
                             continue;
-                        } else if text == "acl" {
+                        } else if text == "mode_o_acl" {
                             info!("Dumping ACL");
                             irc.send_privmsg(&msg_nick, "My +o ACL:").ok();
-                            for s in &bot_cfg.o_acl.acl {
+                            for s in &bot_cfg.mode_o_acl.acl_str {
                                 irc.send_privmsg(&msg_nick, s).ok();
                             }
                             irc.send_privmsg(&msg_nick, "<EOF>").ok();
@@ -96,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
                         mode_v(&irc, cfg_channel, &msg_nick);
                     } else if text == cfg.cmd_mode_o {
                         let now1 = Utc::now();
-                        let acl_resp = bot_cfg.acl_match(&userhost);
+                        let acl_resp = bot_cfg.mode_o_acl.re_match(&userhost);
                         info!(
                             "ACL check took {} µs.",
                             Utc::now()
@@ -109,13 +109,7 @@ async fn main() -> anyhow::Result<()> {
                             Some((i, s)) => {
                                 info!("ACL match {userhost} at index {i}: {s}");
                                 info!("Giving ops on {cfg_channel} to {msg_nick}");
-                                if let Err(e) = irc.send_mode(
-                                    cfg_channel,
-                                    &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
-                                ) {
-                                    error!("{e}");
-                                    continue;
-                                }
+                                mode_o(&irc, cfg_channel, &msg_nick);
                             }
                             None => {
                                 info!("ACL check failed for {userhost}. Fallback +v on {cfg_channel} to {msg_nick}");
@@ -144,11 +138,23 @@ async fn main() -> anyhow::Result<()> {
             Command::Response(resp, v) => {
                 debug!("Got response type {resp:?} contents: {v:?}");
             }
-            Command::JOIN(ch, foo1, foo2) => {
-                debug!(
-                    "JOIN <{msg_nick}> {msg_user}@{msg_host}: {} {:?} {:?}",
-                    ch, foo1, foo2
+            Command::JOIN(ch, _, _) => {
+                info!("JOIN <{msg_nick}> {userhost} {ch}");
+                let now1 = Utc::now();
+                let acl_resp = bot_cfg.auto_o_acl.re_match(&userhost);
+                info!(
+                    "JOIN ACL check took {} µs.",
+                    Utc::now()
+                        .signed_duration_since(now1)
+                        .num_microseconds()
+                        .unwrap_or(0)
                 );
+
+                if let Some((i, s)) = acl_resp {
+                    info!("JOIN ACL match {userhost} at index {i}: {s}");
+                    info!("Giving ops on {cfg_channel} to {msg_nick}");
+                    mode_o(&irc, cfg_channel, &msg_nick);
+                }
             }
             cmd => {
                 debug!("Unhandled command: {cmd:?}")
@@ -162,7 +168,7 @@ pub fn mode_v<S>(irc: &Client, channel: S, nick: S)
 where
     S: AsRef<str> + Display,
 {
-    info!("Giving voice on {channel} to {nick}");
+    info!("Giving +v on {channel} to {nick}");
     if let Err(e) = irc.send_mode(
         channel,
         &[Mode::Plus(ChannelMode::Voice, Some(nick.to_string()))],
@@ -172,4 +178,20 @@ where
     }
     // irc.send_privmsg(nick.as_ref(), "You got +v now.").ok();
 }
+
+pub fn mode_o<S>(irc: &Client, channel: S, nick: S)
+where
+    S: AsRef<str> + Display,
+{
+    info!("Giving +o on {channel} to {nick}");
+    if let Err(e) = irc.send_mode(
+        channel,
+        &[Mode::Plus(ChannelMode::Oper, Some(nick.to_string()))],
+    ) {
+        error!("{e}");
+        // return;
+    }
+    // irc.send_privmsg(nick.as_ref(), "You got +v now.").ok();
+}
+
 // EOF
