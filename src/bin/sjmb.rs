@@ -90,19 +90,24 @@ async fn main() -> anyhow::Result<()> {
                         } else if text == cfg.cmd_mode_v {
                             mode_v(&irc, cfg_channel, &msg_nick);
                         } else if text == cfg.cmd_mode_o {
-                            if !OAcl::re_match(&bot_cfg.o_acl_re, &userhost) {
-                                info!("ACL check failed for {userhost}. Fallback to +v.");
-                                mode_v(&irc, cfg_channel, &msg_nick);
-                                continue;
+                            match bot_cfg.acl_match(&userhost) {
+                                Some((i, s)) => {
+                                    info!("ACL match {userhost} at line {}: {}", i + 1, &s);
+                                    info!("Giving ops on {cfg_channel} to {msg_nick}");
+                                    if let Err(e) = irc.send_mode(
+                                        cfg_channel,
+                                        &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
+                                    ) {
+                                        error!("{e}");
+                                        continue;
+                                    }
+                                }
+                                None => {
+                                    info!("ACL check failed for {userhost}. Fallback +v on {cfg_channel} to {msg_nick}");
+                                    mode_v(&irc, cfg_channel, &msg_nick);
+                                }
                             }
-                            info!("Giving ops on {cfg_channel} to {msg_nick}");
-                            if let Err(e) = irc.send_mode(
-                                cfg_channel,
-                                &[Mode::Plus(ChannelMode::Oper, Some(msg_nick.clone()))],
-                            ) {
-                                error!("{e}");
-                                continue;
-                            }
+
                             // irc.send_privmsg(&msg_nick, "You got +o now.").ok();
                         }
                     }

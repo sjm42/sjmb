@@ -72,6 +72,18 @@ impl BotRuntimeConfig {
             o_acl_re,
         })
     }
+    pub fn acl_match<S>(&self, userhost: S) -> Option<(usize, String)>
+    where
+        S: AsRef<str>,
+    {
+        for (i, re) in self.o_acl_re.iter().enumerate() {
+            if re.is_match(userhost.as_ref()) {
+                // return index of match along with the matched regex string
+                return Some((i, self.o_acl.acl[i].to_string()));
+            }
+        }
+        None
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -114,12 +126,6 @@ impl OAcl {
             re_vec.push(Regex::new(s)?);
         }
         Ok(re_vec)
-    }
-    pub fn re_match<S>(acl: &[Regex], userhost: S) -> bool
-    where
-        S: AsRef<str>,
-    {
-        acl.iter().any(|re| re.is_match(userhost.as_ref()))
     }
 }
 
