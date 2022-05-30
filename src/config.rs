@@ -58,6 +58,7 @@ impl ConfigCommon {
         let mut config: ConfigCommon = serde_json::from_reader(BufReader::new(File::open(file)?))?;
         config.irc_log_dir = shellexpand::full(&config.irc_log_dir)?.into_owned();
         config.mode_o_acl = shellexpand::full(&config.mode_o_acl)?.into_owned();
+        config.auto_o_acl = shellexpand::full(&config.auto_o_acl)?.into_owned();
         debug!("New ConfigCommon:\n{config:#?}");
         Ok(config)
     }
