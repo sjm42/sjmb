@@ -140,6 +140,11 @@ async fn main() -> anyhow::Result<()> {
             }
             Command::JOIN(ch, _, _) => {
                 info!("JOIN <{msg_nick}> {userhost} {ch}");
+                if msg_nick == mynick {
+                    info!("Ignore join self");
+                    continue;
+                }
+
                 let now1 = Utc::now();
                 let acl_resp = bot_cfg.auto_o_acl.re_match(&userhost);
                 info!(
