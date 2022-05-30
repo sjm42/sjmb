@@ -96,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
                     } else if text == cfg.cmd_mode_o {
                         match bot_cfg.acl_match(&userhost) {
                             Some((i, s)) => {
-                                info!("ACL match {userhost} at line {}: {}", i + 1, &s);
+                                info!("ACL match {userhost} at index {i}: {s}");
                                 info!("Giving ops on {cfg_channel} to {msg_nick}");
                                 if let Err(e) = irc.send_mode(
                                     cfg_channel,
