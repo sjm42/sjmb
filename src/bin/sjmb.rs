@@ -97,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
                     } else if text == cfg.cmd_mode_o {
                         let now1 = Utc::now();
                         let acl_resp = bot_cfg.mode_o_acl.re_match(&userhost);
-                        info!(
+                        debug!(
                             "ACL check took {} µs.",
                             Utc::now()
                                 .signed_duration_since(now1)

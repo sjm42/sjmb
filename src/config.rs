@@ -76,19 +76,13 @@ impl BotRuntimeConfig {
         let common = ConfigCommon::new(opts)?;
 
         // pre-compile the ACL regex arrays
-        info!("Reading regex array ACLs...");
-        let now2 = Utc::now();
+        debug!("Reading regex array ACLs...");
 
         // read & parse ACLs in json format
         let mode_o_acl = ReAcl::new(&common.mode_o_acl)?;
         let auto_o_acl = ReAcl::new(&common.auto_o_acl)?;
 
-        info!(
-            "Regex ACL preparations took {} ms.",
-            Utc::now().signed_duration_since(now2).num_milliseconds()
-        );
-
-        info!(
+        debug!(
             "New runtime config successfully created in {} ms.",
             Utc::now().signed_duration_since(now1).num_milliseconds()
         );
