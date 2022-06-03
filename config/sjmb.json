@@ -1,7 +1,7 @@
 {
     "irc_log_dir": "$HOME/sjmb/logs",
     "owner": "sjm",
-    "channel": "#chanb",
+    "channel": "#chana",
     "cmd_invite": "inviteme",
     "cmd_mode_o": "opme",
     "cmd_mode_v": "zxcvb",
