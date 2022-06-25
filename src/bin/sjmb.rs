@@ -7,6 +7,7 @@ use log::*;
 use regex::Regex;
 use std::{fmt::Display, time};
 use structopt::StructOpt;
+use url::Url;
 use webpage::{Webpage, WebpageOptions}; // provides `try_next`
 
 use sjmb::*;
@@ -166,21 +167,28 @@ async fn main() -> anyhow::Result<()> {
                 // Are we supposed to detect urls and show titles on channel?
                 if bot_cfg.common.url_fetch_title {
                     for url_cap in re_url.captures_iter(text.as_ref()) {
-                        let url = &url_cap[1];
-                        info!("*** detected url: {url}");
-                        info!("Fetching URL {url}");
+                        let url_s = &url_cap[1];
+                        if let Ok(url) = Url::parse(url_s) {
+                            // Now we should have a canonical url, IDN handled etc.
+                            let url_c = String::from(url);
+                            info!("*** detected url: {url_c}");
+                            info!("Fetching URL {url_c}");
 
-                        let webpage_opts = WebpageOptions {
-                            allow_insecure: true,
-                            timeout: time::Duration::new(5, 0),
-                            ..Default::default()
-                        };
+                            let webpage_opts = WebpageOptions {
+                                allow_insecure: true,
+                                timeout: time::Duration::new(5, 0),
+                                ..Default::default()
+                            };
 
-                        if let Ok(pageinfo) = Webpage::from_url(url, webpage_opts) {
-                            if let Some(title) = pageinfo.html.title {
-                                let say = format!("URL Title: {title}");
-                                info!("{channel} <{mynick}> {say}");
-                                irc.send_privmsg(&channel, say).ok();
+                            if let Ok(pageinfo) = Webpage::from_url(&url_c, webpage_opts) {
+                                if let Some(title) = pageinfo.html.title {
+                                    // ignore titles that are just the url repeated
+                                    if title != url_s {
+                                        let say = format!("URL Title: {title}");
+                                        info!("{channel} <{mynick}> {say}");
+                                        irc.send_privmsg(&channel, say).ok();
+                                    }
+                                }
                             }
                         }
                     }
