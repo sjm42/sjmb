@@ -45,6 +45,8 @@ pub struct ConfigCommon {
     pub irc_log_dir: String,
     pub owner: String,
     pub channel: String,
+    pub url_fetch_title: bool,
+    pub url_regex: String,
     pub cmd_invite: String, // magic word to get /invite
     pub cmd_mode_o: String, // magic word to get +o
     pub cmd_mode_v: String, // magic word to get +v

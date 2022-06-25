@@ -4,8 +4,10 @@ use chrono::*;
 use futures::prelude::*;
 use irc::client::prelude::*;
 use log::*;
-use std::fmt::Display;
+use regex::Regex;
+use std::{fmt::Display, time};
 use structopt::StructOpt;
+use webpage::{Webpage, WebpageOptions}; // provides `try_next`
 
 use sjmb::*;
 
@@ -17,6 +19,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting up");
 
     let mut bot_cfg = BotRuntimeConfig::new(&opts)?;
+    let mut re_url = Regex::new(&bot_cfg.common.url_regex)?;
 
     let mut irc = Client::new(&opts.irc_config).await?;
     // trace!("My IRC client is:\n{irc:#?}");
@@ -43,9 +46,39 @@ async fn main() -> anyhow::Result<()> {
         let userhost = format!("{msg_user}@{msg_host}");
 
         match message.command {
+            Command::Response(resp, v) => {
+                debug!("Got response type {resp:?} contents: {v:?}");
+            }
+
+            Command::JOIN(ch, _, _) => {
+                info!("JOIN <{msg_nick}> {userhost} {ch}");
+                if msg_nick == mynick {
+                    // Ignore join self :p
+                    continue;
+                }
+
+                let now1 = Utc::now();
+                let acl_resp = bot_cfg.auto_o_acl.re_match(&userhost);
+                debug!(
+                    "ACL check took {} µs.",
+                    Utc::now()
+                        .signed_duration_since(now1)
+                        .num_microseconds()
+                        .unwrap_or(0)
+                );
+
+                if let Some((i, s)) = acl_resp {
+                    info!("JOIN auto-op: ACL match {userhost} at index {i}: {s}");
+                    mode_o(&irc, &ch, &msg_nick);
+                }
+            }
+
             Command::PRIVMSG(channel, text) => {
                 if channel == mynick {
+                    // *********************
                     // This is a private msg
+                    // *********************
+
                     info!(
                         "*** Privmsg from {} ({}@{}): {}",
                         &msg_nick, &msg_user, &msg_host, &text
@@ -61,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
                                 Ok(c) => {
                                     info!("*** Reload successful.");
                                     bot_cfg = c;
+                                    re_url = Regex::new(&bot_cfg.common.url_regex)?;
                                 }
                                 Err(e) => {
                                     error!("Could not parse runtime config:\n{e}");
@@ -123,42 +157,36 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                // This is a channel msg
+                // ********************************
+                // Otherwise, this is a channel msg
+                // ********************************
+
                 debug!("{channel} <{msg_nick}> {text}");
 
-                /*
-                if text.contains(mynick) {
-                    let say = "Hmm?";
-                    info!("{channel} <{mynick}> {say}");
-                    irc.send_privmsg(&channel, say).ok();
-                }
-                */
-            }
-            Command::Response(resp, v) => {
-                debug!("Got response type {resp:?} contents: {v:?}");
-            }
-            Command::JOIN(ch, _, _) => {
-                info!("JOIN <{msg_nick}> {userhost} {ch}");
-                if msg_nick == mynick {
-                    // Ignore join self :p
-                    continue;
-                }
+                // Are we supposed to detect urls and show titles on channel?
+                if bot_cfg.common.url_fetch_title {
+                    for url_cap in re_url.captures_iter(text.as_ref()) {
+                        let url = &url_cap[1];
+                        info!("*** detected url: {url}");
+                        info!("Fetching URL {url}");
 
-                let now1 = Utc::now();
-                let acl_resp = bot_cfg.auto_o_acl.re_match(&userhost);
-                debug!(
-                    "ACL check took {} µs.",
-                    Utc::now()
-                        .signed_duration_since(now1)
-                        .num_microseconds()
-                        .unwrap_or(0)
-                );
+                        let webpage_opts = WebpageOptions {
+                            allow_insecure: true,
+                            timeout: time::Duration::new(5, 0),
+                            ..Default::default()
+                        };
 
-                if let Some((i, s)) = acl_resp {
-                    info!("JOIN auto-op: ACL match {userhost} at index {i}: {s}");
-                    mode_o(&irc, &ch, &msg_nick);
+                        if let Ok(pageinfo) = Webpage::from_url(url, webpage_opts) {
+                            if let Some(title) = pageinfo.html.title {
+                                let say = format!("URL Title: {title}");
+                                info!("{channel} <{mynick}> {say}");
+                                irc.send_privmsg(&channel, say).ok();
+                            }
+                        }
+                    }
                 }
             }
+
             cmd => {
                 debug!("Unhandled command: {cmd:?}")
             }
