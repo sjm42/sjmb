@@ -164,8 +164,8 @@ async fn main() -> anyhow::Result<()> {
 
                 debug!("{channel} <{msg_nick}> {text}");
 
-                // Are we supposed to detect urls and show titles on channel?
-                if bot_cfg.common.url_fetch_title {
+                // Are we supposed to detect urls and show titles on this channel?
+                if let Some(true) = bot_cfg.common.url_fetch_channels.get(&channel) {
                     for url_cap in re_url.captures_iter(text.as_ref()) {
                         let url_s = &url_cap[1];
                         if let Ok(url) = Url::parse(url_s) {

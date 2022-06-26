@@ -4,7 +4,7 @@ use chrono::*;
 use log::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{env, fs::File, io::BufReader};
+use std::{collections::HashMap, env, fs::File, io::BufReader};
 use structopt::StructOpt;
 
 #[derive(Debug, Clone, StructOpt)]
@@ -45,7 +45,7 @@ pub struct ConfigCommon {
     pub irc_log_dir: String,
     pub owner: String,
     pub channel: String,
-    pub url_fetch_title: bool,
+    pub url_fetch_channels: HashMap<String, bool>,
     pub url_regex: String,
     pub cmd_invite: String, // magic word to get /invite
     pub cmd_mode_o: String, // magic word to get +o

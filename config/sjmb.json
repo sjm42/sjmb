@@ -2,7 +2,9 @@
     "irc_log_dir": "$HOME/sjmb/logs",
     "owner": "sjm",
     "channel": "#chana",
-    "url_fetch_title": true,
+    "url_fetch_channels": {
+        "#chana": true
+    },
     "url_regex": "(https?://[\\w/',\":;!%@=\\-\\.\\~\\?\\#\\[\\]\\{\\}\\$\\&\\(\\)\\*\\+]+[^\\s'\"\\]\\}])",
     "cmd_invite": "inviteme",
     "cmd_mode_o": "opme",
