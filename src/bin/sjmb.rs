@@ -30,13 +30,11 @@ async fn main() -> anyhow::Result<()> {
     opts.finish()?;
     start_pgm(&opts, "sjmb");
     info!("Starting up");
-
-    // check my configs before starting
-    let bot_cfg = BotRuntimeConfig::new(&opts)?;
-    let re = Regex::new(&bot_cfg.common.url_regex)?;
-    drop(re);
-    drop(bot_cfg);
-
+    {
+        // check my configs before starting
+        let bot_cfg = BotRuntimeConfig::new(&opts)?;
+        let re = Regex::new(&bot_cfg.common.url_regex)?;
+    }
     never_gonna_give_you_up(opts).await;
     Ok(())
 }
