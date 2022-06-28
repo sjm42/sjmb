@@ -1,6 +1,8 @@
 {
     "irc_log_dir": "$HOME/sjmb/logs",
-    "owner": "sjm",
+    "privileged_nicks": {
+        "sjm": true
+    },
     "channel": "#chana",
     "url_fetch_channels": {
         "#chana": true

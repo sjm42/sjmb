@@ -43,7 +43,7 @@ impl OptsCommon {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConfigCommon {
     pub irc_log_dir: String,
-    pub owner: String,
+    pub privileged_nicks: HashMap<String, bool>,
     pub channel: String,
     pub url_fetch_channels: HashMap<String, bool>,
     pub url_regex: String,
