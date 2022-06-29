@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
     {
         // check my configs before starting
         let bot_cfg = BotRuntimeConfig::new(&opts)?;
-        let re = Regex::new(&bot_cfg.common.url_regex)?;
+        let _re = Regex::new(&bot_cfg.common.url_regex)?;
     }
     never_gonna_give_you_up(opts).await;
     Ok(())
@@ -222,28 +222,42 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
         error!("*** RELOADING CONFIG ***");
         match BotRuntimeConfig::new(&st.opts) {
             Ok(c) => {
-                info!("*** Reload successful.");
                 st.re_url = Regex::new(&c.common.url_regex)?;
                 st.bot_cfg = c;
+                let msg = "*** Reload successful.";
+                info!("{msg}");
+                st.irc.send_privmsg(&st.msg_nick, msg)?;
             }
             Err(e) => {
-                error!("Could not parse runtime config:\n{e}");
-                error!("*** Reload failed.");
+                let msg = format!("Could not parse runtime config:\n{e}");
+                error!("{msg}");
+                st.irc.send_privmsg(&st.msg_nick, &msg)?;
+                let msg = "*** Reload failed.";
+                error!("{msg}");
+                st.irc.send_privmsg(&st.msg_nick, msg)?;
             }
         };
         return Ok(true);
     } else if msg == "mode_o_acl" {
         info!("Dumping ACL");
-        st.irc.send_privmsg(&st.msg_nick, "My +o ACL:").ok();
+        st.irc.send_privmsg(&st.msg_nick, "My +o ACL:")?;
         for s in &st.bot_cfg.mode_o_acl.acl_str {
-            st.irc.send_privmsg(&st.msg_nick, s).ok();
+            st.irc.send_privmsg(&st.msg_nick, s)?;
         }
-        st.irc.send_privmsg(&st.msg_nick, "<EOF>").ok();
+        st.irc.send_privmsg(&st.msg_nick, "<EOF>")?;
         return Ok(true);
     } else if let Some(say) = msg.strip_prefix("say ") {
+        if say.starts_with('#') {
+            // channel was specified
+            if let Some((channel, msg)) = say.split_once(' ') {
+                info!("{channel} <{mynick}> {msg}", mynick = st.mynick);
+                st.irc.send_privmsg(channel, msg)?;
+                return Ok(true);
+            }
+        }
         let cfg_channel = &cfg.channel;
         info!("{cfg_channel} <{mynick}> {say}", mynick = st.mynick);
-        st.irc.send_privmsg(cfg_channel, say).ok();
+        st.irc.send_privmsg(cfg_channel, say)?;
         return Ok(true);
     }
 
