@@ -229,7 +229,10 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
                 st.irc.send_privmsg(&st.msg_nick, msg)?;
             }
             Err(e) => {
-                let msg = format!("Could not parse runtime config:\n{e}");
+                let msg = format!(
+                    "Could not parse runtime config {c}: {e}",
+                    c = &st.opts.bot_config
+                );
                 error!("{msg}");
                 st.irc.send_privmsg(&st.msg_nick, &msg)?;
                 let msg = "*** Reload failed.";
