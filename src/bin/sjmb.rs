@@ -203,7 +203,7 @@ fn handle_private_msg(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
         }
     }
 
-    // Handle Public commands
+    // Handle public commands
     if handle_cmd_public(st, msg)? {
         // a command was found and executed if true was returned
         return Ok(true);
@@ -216,6 +216,21 @@ fn handle_private_msg(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
 // Process privileged commands here and return true only if something was reacted upon
 fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
     let cfg = &st.bot_cfg.common;
+
+    if let Some(say) = msg.strip_prefix("say ") {
+        if say.starts_with('#') {
+            // channel was specified
+            if let Some((channel, msg)) = say.split_once(' ') {
+                info!("{channel} <{mynick}> {msg}", mynick = st.mynick);
+                st.irc.send_privmsg(channel, msg)?;
+                return Ok(true);
+            }
+        }
+        let cfg_channel = &cfg.channel;
+        info!("{cfg_channel} <{mynick}> {say}", mynick = st.mynick);
+        st.irc.send_privmsg(cfg_channel, say)?;
+        return Ok(true);
+    }
 
     if msg == "reload" {
         // *** Try reloading all runtime configs ***
@@ -241,26 +256,15 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
             }
         };
         return Ok(true);
-    } else if msg == "mode_o_acl" {
+    }
+
+    if msg == "mode_o_acl" {
         info!("Dumping ACL");
         st.irc.send_privmsg(&st.msg_nick, "My +o ACL:")?;
         for s in &st.bot_cfg.mode_o_acl.acl_str {
             st.irc.send_privmsg(&st.msg_nick, s)?;
         }
         st.irc.send_privmsg(&st.msg_nick, "<EOF>")?;
-        return Ok(true);
-    } else if let Some(say) = msg.strip_prefix("say ") {
-        if say.starts_with('#') {
-            // channel was specified
-            if let Some((channel, msg)) = say.split_once(' ') {
-                info!("{channel} <{mynick}> {msg}", mynick = st.mynick);
-                st.irc.send_privmsg(channel, msg)?;
-                return Ok(true);
-            }
-        }
-        let cfg_channel = &cfg.channel;
-        info!("{cfg_channel} <{mynick}> {say}", mynick = st.mynick);
-        st.irc.send_privmsg(cfg_channel, say)?;
         return Ok(true);
     }
 
@@ -284,10 +288,14 @@ fn handle_cmd_public(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
         }
         // irc.send_privmsg(&msg_nick, format!("You may join {cfg_channel} now.")).ok();
         return Ok(true);
-    } else if msg == cfg.cmd_mode_v {
+    }
+
+    if msg == cfg.cmd_mode_v {
         mode_v(&st.irc, &cfg.channel, &st.msg_nick)?;
         return Ok(true);
-    } else if msg == cfg.cmd_mode_o {
+    }
+
+    if msg == cfg.cmd_mode_o {
         let now1 = Utc::now();
         let acl_resp = st.bot_cfg.mode_o_acl.re_match(&st.userhost);
         debug!(
@@ -328,6 +336,8 @@ fn handle_channel_msg(st: &IrcState, channel: &str, msg: &str) -> anyhow::Result
     let cfg = &st.bot_cfg.common;
 
     debug!("{channel} <{nick}> {msg}", nick = st.msg_nick);
+
+    // insert future channel msg handlig here, before url detection logic
 
     // Are we supposed to detect urls and show titles on this channel?
     if let Some(true) = cfg.url_fetch_channels.get(channel) {
