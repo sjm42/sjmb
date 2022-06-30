@@ -154,7 +154,6 @@ impl JAcl {
 }
 
 #[derive(Debug)]
-
 pub struct ReAcl {
     pub acl_str: Vec<String>,
     pub acl_re: Vec<Regex>,
