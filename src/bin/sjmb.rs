@@ -4,7 +4,6 @@ use chrono::*;
 use futures::prelude::*;
 use irc::client::prelude::*;
 use log::*;
-use regex::Regex;
 use std::{fmt::Display, thread, time};
 use structopt::StructOpt;
 use url::Url;
@@ -16,7 +15,6 @@ pub struct IrcState {
     irc: Client,
     opts: OptsCommon,
     bot_cfg: BotRuntimeConfig,
-    re_url: Regex,
     mynick: String,
     msg_nick: String,
     msg_user: String,
@@ -28,13 +26,9 @@ pub struct IrcState {
 async fn main() -> anyhow::Result<()> {
     let mut opts = OptsCommon::from_args();
     opts.finish()?;
-    start_pgm(&opts, "sjmb");
+    opts.start_pgm("sjmb");
     info!("Starting up");
-    {
-        // check my configs before starting
-        let bot_cfg = BotRuntimeConfig::new(&opts)?;
-        let _re = Regex::new(&bot_cfg.common.url_regex)?;
-    }
+
     never_gonna_give_you_up(opts).await;
     Ok(())
 }
@@ -52,14 +46,6 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
 
         let bot_cfg = match BotRuntimeConfig::new(&opts) {
             Ok(b) => b,
-            Err(e) => {
-                error!("{e}");
-                continue;
-            }
-        };
-
-        let re_url = match Regex::new(&bot_cfg.common.url_regex) {
-            Ok(r) => r,
             Err(e) => {
                 error!("{e}");
                 continue;
@@ -85,7 +71,6 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
             irc,
             opts: opts.clone(),
             bot_cfg,
-            re_url,
             mynick,
             msg_nick: "NONE".into(),
             msg_user: "NONE".into(),
@@ -137,7 +122,7 @@ async fn run_main_loop(mut istate: IrcState) -> anyhow::Result<()> {
                 if channel == mynick {
                     handle_private_msg(&mut istate, &msg)?;
                 } else {
-                    handle_channel_msg(&istate, &channel, &msg)?;
+                    handle_channel_msg(&istate, &channel, &msg).await?;
                 }
             }
 
@@ -236,7 +221,6 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
         error!("*** RELOADING CONFIG ***");
         match BotRuntimeConfig::new(&st.opts) {
             Ok(c) => {
-                st.re_url = Regex::new(&c.common.url_regex)?;
                 st.bot_cfg = c;
                 let msg = "*** Reload successful.";
                 info!("{msg}");
@@ -331,16 +315,52 @@ fn handle_cmd_public(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
 }
 
 // Process channel messages here and return true only if something was reacted upon
-fn handle_channel_msg(st: &IrcState, channel: &str, msg: &str) -> anyhow::Result<bool> {
+async fn handle_channel_msg(st: &IrcState, channel: &str, msg: &str) -> anyhow::Result<bool> {
     let cfg = &st.bot_cfg.common;
 
     debug!("{channel} <{nick}> {msg}", nick = st.msg_nick);
 
-    // insert future channel msg handlig here, before url detection logic
+    if let Some(url_cmd) = msg.strip_prefix('!') {
+        if let Some((cmd, arg)) = url_cmd.split_once(' ') {
+            if let Some(c) = cfg.url_cmd_list.get(cmd) {
+                // phew we found a command to execute!
+
+                // render URL to retrieve
+                let mut ctx = tera::Context::new();
+                ctx.insert("arg", arg);
+                let url = cfg.url_cmd_tera.as_ref().unwrap().render(cmd, &ctx)?;
+                info!("URL cmd: !{url_cmd} --> {url}");
+
+                let client = reqwest::Client::builder()
+                    .connect_timeout(time::Duration::new(5, 0))
+                    .timeout(time::Duration::new(10, 0))
+                    .build()?;
+
+                let body = client.get(&url).send().await?.text().await?;
+                debug!("Got body:\n{body}");
+
+                for res_cap in c.output_filter_re.as_ref().unwrap().captures_iter(&body) {
+                    let res_str = &res_cap[1];
+                    let say = format!("{url_cmd} --> {res_str}");
+                    info!("{channel} <{mynick}> {say}", mynick = st.mynick);
+                    st.irc.send_privmsg(&channel, say)?;
+                }
+
+                return Ok(true);
+            }
+        }
+    }
 
     // Are we supposed to detect urls and show titles on this channel?
     if let Some(true) = cfg.url_fetch_channels.get(channel) {
-        for url_cap in st.re_url.captures_iter(msg.as_ref()) {
+        let mut found_url = false;
+        for url_cap in cfg
+            .url_regex_re
+            .as_ref()
+            .unwrap()
+            .captures_iter(msg.as_ref())
+        {
+            found_url = true;
             let url_s = &url_cap[1];
             if let Ok(url) = Url::parse(url_s) {
                 // Now we should have a canonical url, IDN handled etc.
@@ -366,7 +386,7 @@ fn handle_channel_msg(st: &IrcState, channel: &str, msg: &str) -> anyhow::Result
                 }
             }
         }
-        return Ok(true);
+        return Ok(found_url);
     }
 
     Ok(false)

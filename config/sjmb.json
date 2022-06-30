@@ -12,5 +12,15 @@
     "cmd_mode_o": "opme",
     "cmd_mode_v": "zxcvb",
     "mode_o_acl": "$HOME/sjmb/config/mode_o_acl.json",
-    "auto_o_acl": "$HOME/sjmb/config/auto_o_acl.json"
+    "auto_o_acl": "$HOME/sjmb/config/auto_o_acl.json",
+    "url_cmd_list": {
+        "metar": {
+            "url_tmpl": "https://tgftp.nws.noaa.gov/data/observations/metar/stations/{{arg | slugify | upper}}.TXT",
+            "output_filter": "(?m)^(\\w+\\s+\\w.*)$"
+        },
+        "taf": {
+            "url_tmpl": "https://aviationweather.gov/adds/dataserver_current/httpparam?dataSource=tafs&requestType=retrieve&format=csv&hoursBeforeNow=3&timeType=issue&mostRecent=true&stationString={{arg | slugify | upper}}",
+            "output_filter": "(?m)^(TAF\\s+[^,]+)"
+        }
+    }
 }

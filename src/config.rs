@@ -6,6 +6,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env, fs::File, io::BufReader};
 use structopt::StructOpt;
+use tera::Tera;
 
 #[derive(Debug, Clone, StructOpt)]
 pub struct OptsCommon {
@@ -38,34 +39,76 @@ impl OptsCommon {
             LevelFilter::Error
         }
     }
+    pub fn start_pgm(&self, name: &str) {
+        env_logger::Builder::new()
+            .filter_module(name, self.get_loglevel())
+            .format_timestamp_secs()
+            .init();
+        info!("Starting up {name}...");
+        debug!("Git branch: {}", env!("GIT_BRANCH"));
+        debug!("Git commit: {}", env!("GIT_COMMIT"));
+        debug!("Source timestamp: {}", env!("SOURCE_TIMESTAMP"));
+        debug!("Compiler version: {}", env!("RUSTC_VERSION"));
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UrlCmd {
+    pub url_tmpl: String, // a Tera template string with {{arg}} if command needs an argument
+    pub output_filter: String,
+    #[serde(skip)]
+    pub output_filter_re: Option<Regex>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConfigCommon {
     pub irc_log_dir: String,
-    pub privileged_nicks: HashMap<String, bool>,
     pub channel: String,
+    pub privileged_nicks: HashMap<String, bool>,
+
     pub url_fetch_channels: HashMap<String, bool>,
     pub url_regex: String,
+
     pub cmd_invite: String, // magic word to get /invite
     pub cmd_mode_o: String, // magic word to get +o
     pub cmd_mode_v: String, // magic word to get +v
     pub mode_o_acl: String, // json file for +o ACL
     pub auto_o_acl: String, // json file for auto-op ACL
+
+    pub url_cmd_list: HashMap<String, UrlCmd>,
+
+    #[serde(skip)]
+    pub url_regex_re: Option<Regex>,
+    #[serde(skip)]
+    pub url_cmd_tera: Option<Tera>,
 }
 impl ConfigCommon {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
         let file = &opts.bot_config;
         info!("Reading config file {file}");
         let mut config: ConfigCommon = serde_json::from_reader(BufReader::new(File::open(file)?))?;
+
+        // Expand $HOME where relevant
         config.irc_log_dir = shellexpand::full(&config.irc_log_dir)?.into_owned();
         config.mode_o_acl = shellexpand::full(&config.mode_o_acl)?.into_owned();
         config.auto_o_acl = shellexpand::full(&config.auto_o_acl)?.into_owned();
+
+        // pre-compile regex
+        config.url_regex_re = Some(Regex::new(&config.url_regex)?);
+
+        // prepare url-based commands, if any
+        let mut tera = Tera::default();
+        for (k, c) in config.url_cmd_list.iter_mut() {
+            tera.add_raw_template(k, &c.url_tmpl)?;
+            c.output_filter_re = Some(Regex::new(&c.output_filter)?);
+        }
+        config.url_cmd_tera = Some(tera);
         debug!("New ConfigCommon:\n{config:#?}");
         Ok(config)
     }
 }
 
+#[derive(Debug)]
 pub struct BotRuntimeConfig {
     pub common: ConfigCommon,
     pub mode_o_acl: ReAcl,
@@ -110,6 +153,8 @@ impl JAcl {
     }
 }
 
+#[derive(Debug)]
+
 pub struct ReAcl {
     pub acl_str: Vec<String>,
     pub acl_re: Vec<Regex>,
@@ -140,15 +185,4 @@ impl ReAcl {
     }
 }
 
-pub fn start_pgm(c: &OptsCommon, name: &str) {
-    env_logger::Builder::new()
-        .filter_module(name, c.get_loglevel())
-        .format_timestamp_secs()
-        .init();
-    info!("Starting up {name}...");
-    debug!("Git branch: {}", env!("GIT_BRANCH"));
-    debug!("Git commit: {}", env!("GIT_COMMIT"));
-    debug!("Source timestamp: {}", env!("SOURCE_TIMESTAMP"));
-    debug!("Compiler version: {}", env!("RUSTC_VERSION"));
-}
 // EOF
