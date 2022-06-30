@@ -73,7 +73,6 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
                 continue;
             }
         };
-        // trace!("My IRC client is:\n{irc:#?}");
 
         if let Err(e) = irc.identify() {
             error!("{e}");
