@@ -14,7 +14,7 @@ use sjmb::*;
 pub struct IrcState {
     irc: Client,
     opts: OptsCommon,
-    bot_cfg: BotRuntimeConfig,
+    bot_cfg: BotConfig,
     mynick: String,
     msg_nick: String,
     msg_user: String,
@@ -44,7 +44,7 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
             error!("Retrying start");
         }
 
-        let bot_cfg = match BotRuntimeConfig::new(&opts) {
+        let bot_cfg = match BotConfig::new(&opts) {
             Ok(b) => b,
             Err(e) => {
                 error!("{e}");
@@ -148,7 +148,12 @@ fn handle_join(st: &IrcState, ch: &str) -> anyhow::Result<bool> {
     }
 
     let now1 = Utc::now();
-    let acl_resp = st.bot_cfg.auto_o_acl.re_match(&st.userhost);
+    let acl_resp = st
+        .bot_cfg
+        .auto_o_acl_rt
+        .as_ref()
+        .unwrap()
+        .re_match(&st.userhost);
     debug!(
         "ACL check took {} µs.",
         Utc::now()
@@ -172,7 +177,7 @@ fn handle_join(st: &IrcState, ch: &str) -> anyhow::Result<bool> {
 
 // Process private messages here and return true only if something was reacted upon
 fn handle_private_msg(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
-    let cfg = &st.bot_cfg.common;
+    let cfg = &st.bot_cfg;
 
     info!(
         "*** Privmsg from {} ({}@{}): {}",
@@ -199,7 +204,7 @@ fn handle_private_msg(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
 
 // Process privileged commands here and return true only if something was reacted upon
 fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
-    let cfg = &st.bot_cfg.common;
+    let cfg = &st.bot_cfg;
 
     if let Some(say) = msg.strip_prefix("say ") {
         if say.starts_with('#') {
@@ -219,7 +224,7 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
     if msg == "reload" {
         // *** Try reloading all runtime configs ***
         error!("*** RELOADING CONFIG ***");
-        match BotRuntimeConfig::new(&st.opts) {
+        match BotConfig::new(&st.opts) {
             Ok(c) => {
                 st.bot_cfg = c;
                 let msg = "*** Reload successful.";
@@ -244,7 +249,7 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
     if msg == "mode_o_acl" {
         info!("Dumping ACL");
         st.irc.send_privmsg(&st.msg_nick, "My +o ACL:")?;
-        for s in &st.bot_cfg.mode_o_acl.acl_str {
+        for s in &st.bot_cfg.mode_o_acl_rt.as_ref().unwrap().acl {
             st.irc.send_privmsg(&st.msg_nick, s)?;
         }
         st.irc.send_privmsg(&st.msg_nick, "<EOF>")?;
@@ -257,7 +262,7 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
 
 // Process "public" commands here and return true only if something was reacted upon
 fn handle_cmd_public(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
-    let cfg = &st.bot_cfg.common;
+    let cfg = &st.bot_cfg;
 
     if msg == cfg.cmd_invite {
         info!(
@@ -280,7 +285,12 @@ fn handle_cmd_public(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
 
     if msg == cfg.cmd_mode_o {
         let now1 = Utc::now();
-        let acl_resp = st.bot_cfg.mode_o_acl.re_match(&st.userhost);
+        let acl_resp = st
+            .bot_cfg
+            .mode_o_acl_rt
+            .as_ref()
+            .unwrap()
+            .re_match(&st.userhost);
         debug!(
             "ACL check took {} µs.",
             Utc::now()
@@ -316,7 +326,7 @@ fn handle_cmd_public(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
 
 // Process channel messages here and return true only if something was reacted upon
 async fn handle_channel_msg(st: &IrcState, channel: &str, msg: &str) -> anyhow::Result<bool> {
-    let cfg = &st.bot_cfg.common;
+    let cfg = &st.bot_cfg;
 
     debug!("{channel} <{nick}> {msg}", nick = st.msg_nick);
 

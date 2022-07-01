@@ -22,6 +22,7 @@ pub struct OptsCommon {
     #[structopt(short, long, default_value = "$HOME/sjmb/config/irc.toml")]
     pub irc_config: String,
 }
+
 impl OptsCommon {
     pub fn finish(&mut self) -> anyhow::Result<()> {
         self.bot_config = shellexpand::full(&self.bot_config)?.into_owned();
@@ -61,7 +62,7 @@ pub struct UrlCmd {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ConfigCommon {
+pub struct BotConfig {
     pub irc_log_dir: String,
     pub channel: String,
     pub privileged_nicks: HashMap<String, bool>,
@@ -78,22 +79,34 @@ pub struct ConfigCommon {
     pub url_cmd_list: HashMap<String, UrlCmd>,
 
     #[serde(skip)]
+    pub mode_o_acl_rt: Option<ReAcl>,
+    #[serde(skip)]
+    pub auto_o_acl_rt: Option<ReAcl>,
+
+    #[serde(skip)]
     pub url_regex_re: Option<Regex>,
     #[serde(skip)]
     pub url_cmd_tera: Option<Tera>,
 }
-impl ConfigCommon {
+
+impl BotConfig {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
+        let now1 = Utc::now();
+
         let file = &opts.bot_config;
         info!("Reading config file {file}");
-        let mut config: ConfigCommon = serde_json::from_reader(BufReader::new(File::open(file)?))?;
+        let mut config: BotConfig = serde_json::from_reader(BufReader::new(File::open(file)?))?;
 
         // Expand $HOME where relevant
         config.irc_log_dir = shellexpand::full(&config.irc_log_dir)?.into_owned();
         config.mode_o_acl = shellexpand::full(&config.mode_o_acl)?.into_owned();
         config.auto_o_acl = shellexpand::full(&config.auto_o_acl)?.into_owned();
 
-        // pre-compile regex
+        // read in & parse ACLs (json)
+        config.mode_o_acl_rt = Some(ReAcl::new(&config.mode_o_acl)?);
+        config.auto_o_acl_rt = Some(ReAcl::new(&config.auto_o_acl)?);
+
+        // pre-compile url detection regex
         config.url_regex_re = Some(Regex::new(&config.url_regex)?);
 
         // prepare url-based commands, if any
@@ -103,81 +116,47 @@ impl ConfigCommon {
             c.output_filter_re = Some(Regex::new(&c.output_filter)?);
         }
         config.url_cmd_tera = Some(tera);
-        debug!("New ConfigCommon:\n{config:#?}");
+
+        info!(
+            "New runtime config successfully created in {} ms.",
+            Utc::now().signed_duration_since(now1).num_milliseconds()
+        );
+        debug!("New BotConfig:\n{config:#?}");
+
         Ok(config)
     }
 }
 
-#[derive(Debug)]
-pub struct BotRuntimeConfig {
-    pub common: ConfigCommon,
-    pub mode_o_acl: ReAcl,
-    pub auto_o_acl: ReAcl,
-}
-impl BotRuntimeConfig {
-    pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
-        let now1 = Utc::now();
-        // read & parse json main config
-        let common = ConfigCommon::new(opts)?;
-
-        // pre-compile the ACL regex arrays
-        debug!("Reading regex array ACLs...");
-
-        // read & parse ACLs in json format
-        let mode_o_acl = ReAcl::new(&common.mode_o_acl)?;
-        let auto_o_acl = ReAcl::new(&common.auto_o_acl)?;
-
-        debug!(
-            "New runtime config successfully created in {} ms.",
-            Utc::now().signed_duration_since(now1).num_milliseconds()
-        );
-        Ok(Self {
-            common,
-            mode_o_acl,
-            auto_o_acl,
-        })
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct JAcl {
-    pub acl: Vec<String>,
-}
-impl JAcl {
-    pub fn new(file: &str) -> anyhow::Result<Self> {
-        info!("Reading json acl file {file}");
-        let acl: Self = serde_json::from_reader(BufReader::new(File::open(file)?))?;
-        info!("Got {} entries.", acl.acl.len());
-        debug!("New JAcl:\n{acl:#?}");
-        Ok(acl)
-    }
-}
-
-#[derive(Debug)]
 pub struct ReAcl {
-    pub acl_str: Vec<String>,
-    pub acl_re: Vec<Regex>,
+    pub acl: Vec<String>,
+    #[serde(skip)]
+    pub acl_re: Option<Vec<Regex>>,
 }
 impl ReAcl {
     pub fn new(file: &str) -> anyhow::Result<Self> {
-        let jacl = JAcl::new(file)?;
-        let mut re_vec = Vec::with_capacity(jacl.acl.len());
-        for s in &jacl.acl {
+        info!("Reading json acl file {file}");
+        let mut acl: Self = serde_json::from_reader(BufReader::new(File::open(file)?))?;
+        info!("Got {} entries.", acl.acl.len());
+        debug!("New ReAcl:\n{acl:#?}");
+
+        // precompile every regex and save them
+        let mut re_vec = Vec::with_capacity(acl.acl.len());
+        for s in &acl.acl {
             re_vec.push(Regex::new(s)?);
         }
-        Ok(Self {
-            acl_str: jacl.acl,
-            acl_re: re_vec,
-        })
+        acl.acl_re = Some(re_vec);
+
+        Ok(acl)
     }
     pub fn re_match<S>(&self, userhost: S) -> Option<(usize, String)>
     where
         S: AsRef<str>,
     {
-        for (i, re) in self.acl_re.iter().enumerate() {
+        for (i, re) in self.acl_re.as_ref().unwrap().iter().enumerate() {
             if re.is_match(userhost.as_ref()) {
                 // return index of match along with the matched regex string
-                return Some((i, self.acl_str[i].to_string()));
+                return Some((i, self.acl[i].to_string()));
             }
         }
         None
