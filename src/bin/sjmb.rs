@@ -388,7 +388,7 @@ async fn handle_channel_msg(st: &IrcState, channel: &str, msg: &str) -> anyhow::
                     if let Some(title) = pageinfo.html.title {
                         // ignore titles that are just the url repeated
                         if title != url_s {
-                            let say = format!("URL Title: {title}");
+                            let say = format!("\"{title}\"");
                             info!("{channel} <{mynick}> {say}", mynick = st.mynick);
                             st.irc.send_privmsg(&channel, say)?;
                         }
