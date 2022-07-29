@@ -88,8 +88,7 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
 async fn run_main_loop(mut istate: IrcState) -> anyhow::Result<()> {
     let mut stream = istate.irc.stream()?;
     while let Some(message) = stream.next().await.transpose()? {
-        let mynick = istate.irc.current_nickname();
-        istate.mynick = mynick.to_string();
+        let mynick = &istate.mynick;
 
         trace!("Got msg: {message:?}");
 
@@ -119,11 +118,16 @@ async fn run_main_loop(mut istate: IrcState) -> anyhow::Result<()> {
             }
 
             Command::PRIVMSG(channel, msg) => {
-                if channel == mynick {
+                if &channel == mynick {
                     handle_private_msg(&mut istate, &msg)?;
                 } else {
                     handle_channel_msg(&istate, &channel, &msg).await?;
                 }
+            }
+
+            Command::NICK(newnick) => {
+                info!("My new nick: {newnick}");
+                istate.mynick = newnick;
             }
 
             cmd => {
@@ -219,6 +223,12 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
         info!("{cfg_channel} <{mynick}> {say}", mynick = st.mynick);
         st.irc.send_privmsg(cfg_channel, say)?;
         return Ok(true);
+    }
+
+    if let Some(newnick) = msg.strip_prefix("nick ") {
+        info!("Trying to change nick to {newnick}");
+        st.irc.send(Command::NICK(newnick.into()))?;
+        st.mynick = newnick.into();
     }
 
     if msg == "reload" {
