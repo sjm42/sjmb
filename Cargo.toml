@@ -17,14 +17,14 @@ env_logger = "0.9"
 futures = "0.3"
 irc = "0.15"
 log = "0.4"
-regex = "1.5"
+regex = "1.6"
 reqwest = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 shellexpand = "2.1"
 structopt = "0.3"
 tera = "1.16"
-tokio = { version = "1.19", features = ["full"] }
+tokio = { version = "1.20", features = ["full"] }
 url = "2.2"
 webpage = "1.4"
 
