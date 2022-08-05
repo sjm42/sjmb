@@ -118,7 +118,7 @@ async fn run_main_loop(mut istate: IrcState) -> anyhow::Result<()> {
             }
 
             Command::PRIVMSG(channel, msg) => {
-                if &channel == mynick {
+                if channel == *mynick {
                     handle_private_msg(&mut istate, &msg)?;
                 } else {
                     handle_channel_msg(&istate, &channel, &msg).await?;
