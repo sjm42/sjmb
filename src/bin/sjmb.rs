@@ -88,9 +88,8 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
 async fn run_main_loop(mut istate: IrcState) -> anyhow::Result<()> {
     let mut stream = istate.irc.stream()?;
     while let Some(message) = stream.next().await.transpose()? {
-        let mynick = &istate.mynick;
-
         trace!("Got msg: {message:?}");
+        let mynick = &istate.mynick;
 
         let msg_nick;
         let msg_user;
@@ -126,8 +125,11 @@ async fn run_main_loop(mut istate: IrcState) -> anyhow::Result<()> {
             }
 
             Command::NICK(newnick) => {
-                info!("My new nick: {newnick}");
-                istate.mynick = newnick;
+                debug!("NICK: {msg_nick} USER: {msg_user} HOST: {msg_host} NEW NICK: {newnick}");
+                if msg_nick == *mynick {
+                    info!("My NEW nick: {newnick}");
+                    istate.mynick = newnick;
+                }
             }
 
             cmd => {
@@ -228,7 +230,6 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
     if let Some(newnick) = msg.strip_prefix("nick ") {
         info!("Trying to change nick to {newnick}");
         st.irc.send(Command::NICK(newnick.into()))?;
-        st.mynick = newnick.into();
     }
 
     if msg == "reload" {
