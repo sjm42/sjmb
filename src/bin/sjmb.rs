@@ -361,6 +361,11 @@ async fn handle_channel_msg(st: &IrcState, channel: &str, msg: &str) -> anyhow::
                     .danger_accept_invalid_certs(true)
                     .danger_accept_invalid_hostnames(true)
                     .min_tls_version(reqwest::tls::Version::TLS_1_0)
+                    .user_agent(format!(
+                        "{} v{}",
+                        env!("CARGO_PKG_NAME"),
+                        env!("CARGO_PKG_VERSION")
+                    ))
                     .build()?;
 
                 let body = client.get(&url).send().await?.text().await?;
