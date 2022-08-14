@@ -113,14 +113,18 @@ async fn run_main_loop(mut istate: IrcState) -> anyhow::Result<()> {
             }
 
             Command::JOIN(ch, _, _) => {
-                handle_join(&istate, &ch)?;
+                if let Err(e) = handle_join(&istate, &ch) {
+                    error!("JOIN handling failed: {e}");
+                }
             }
 
             Command::PRIVMSG(channel, msg) => {
                 if channel == *mynick {
-                    handle_private_msg(&mut istate, &msg)?;
-                } else {
-                    handle_channel_msg(&istate, &channel, &msg).await?;
+                    if let Err(e) = handle_private_msg(&mut istate, &msg) {
+                        error!("PRIVMSG handling failed: {e}");
+                    }
+                } else if let Err(e) = handle_channel_msg(&istate, &channel, &msg).await {
+                    error!("Channel msg handling failed: {e}");
                 }
             }
 
