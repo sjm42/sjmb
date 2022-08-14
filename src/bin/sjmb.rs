@@ -4,12 +4,11 @@ use chrono::*;
 use futures::prelude::*;
 use irc::client::prelude::*;
 use log::*;
+use sjmb::*;
 use std::{fmt::Display, thread, time};
 use structopt::StructOpt;
 use url::Url;
 use webpage::{Webpage, WebpageOptions}; // provides `try_next`
-
-use sjmb::*;
 
 pub struct IrcState {
     irc: Client,
@@ -359,6 +358,9 @@ async fn handle_channel_msg(st: &IrcState, channel: &str, msg: &str) -> anyhow::
                 let client = reqwest::Client::builder()
                     .connect_timeout(time::Duration::new(5, 0))
                     .timeout(time::Duration::new(10, 0))
+                    .danger_accept_invalid_certs(true)
+                    .danger_accept_invalid_hostnames(true)
+                    .min_tls_version(reqwest::tls::Version::TLS_1_0)
                     .build()?;
 
                 let body = client.get(&url).send().await?.text().await?;
