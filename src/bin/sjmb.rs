@@ -233,6 +233,13 @@ fn handle_cmd_privileged(st: &mut IrcState, msg: &str) -> anyhow::Result<bool> {
     if let Some(newnick) = msg.strip_prefix("nick ") {
         info!("Trying to change nick to {newnick}");
         st.irc.send(Command::NICK(newnick.into()))?;
+        return Ok(true);
+    }
+
+    if let Some(newchan) = msg.strip_prefix("join ") {
+        info!("Trying to join channel {newchan}");
+        st.irc.send(Command::JOIN(newchan.into(), None, None))?;
+        return Ok(true);
     }
 
     if msg == "reload" {
