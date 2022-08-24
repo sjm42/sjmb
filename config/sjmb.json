@@ -9,8 +9,8 @@
     },
     "url_regex": "(https?://[\\w/',\":;!%@=\\-\\.\\~\\?\\#\\[\\]\\{\\}\\$\\&\\(\\)\\*\\+]+[^\\s'\"\\]\\}])",
     "cmd_invite": "inviteme",
-    "cmd_mode_o": "opme",
-    "cmd_mode_v": "zxcvb",
+    "cmd_mode_v": "asdf",
+    "cmd_mode_o": "ghjkl",
     "mode_o_acl": "$HOME/sjmb/config/mode_o_acl.json",
     "auto_o_acl": "$HOME/sjmb/config/auto_o_acl.json",
     "url_cmd_list": {
