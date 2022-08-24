@@ -15,19 +15,19 @@
     "auto_o_acl": "$HOME/sjmb/config/auto_o_acl.json",
     "url_cmd_list": {
         "metar_old": {
-            "url_tmpl": "https://tgftp.nws.noaa.gov/data/observations/metar/stations/{{arg | slugify | upper}}.TXT",
+            "url_tmpl": "https://tgftp.nws.noaa.gov/data/observations/metar/stations/{{args[0] | slugify | upper}}.TXT",
             "output_filter": "(?m)^(\\w+\\s+\\w.*)$"
         },
         "taf_old": {
-            "url_tmpl": "https://aviationweather.gov/adds/dataserver_current/httpparam?dataSource=tafs&requestType=retrieve&format=csv&hoursBeforeNow=3&timeType=issue&mostRecent=true&stationString={{arg | slugify | upper}}",
+            "url_tmpl": "https://aviationweather.gov/adds/dataserver_current/httpparam?dataSource=tafs&requestType=retrieve&format=csv&hoursBeforeNow=3&timeType=issue&mostRecent=true&stationString={{args[0] | slugify | upper}}",
             "output_filter": "(?m)^(TAF\\s+[^,]+)"
         },
         "metar": {
-            "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{arg | slugify | upper}}",
+            "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{args[0] | slugify | upper}}",
             "output_filter": "(?im)<b>metar:</b>\\s*(.*)$"
         },
         "taf": {
-            "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{arg | slugify | upper}}",
+            "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{args[0] | slugify | upper}}",
             "output_filter": "(?im)<b>taf:</b>\\s*(.*)$"
         }
     }
