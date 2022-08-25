@@ -441,14 +441,14 @@ impl IrcBot {
                 // phew we found an url command to execute!
 
                 let u_args = args.split_whitespace().collect::<Vec<&str>>();
-                info!("Url cmd ctx arg: {args:?}");
-                info!("Url cmd ctx args: {u_args:?}");
+                debug!("Url cmd ctx arg: {args:?}");
+                debug!("Url cmd ctx args: {u_args:?}");
 
                 // render URL to retrieve
                 let mut ctx = tera::Context::new();
                 ctx.insert("arg", args);
                 ctx.insert("args", &u_args);
-                info!("Url cmd ctx: {ctx:#?}");
+                debug!("Url cmd ctx: {ctx:#?}");
 
                 let url = cfg.url_cmd_tera.as_ref().unwrap().render(u_cmd, &ctx)?;
                 info!("URL cmd: !{u_cmd} --> {url}");
