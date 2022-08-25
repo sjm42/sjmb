@@ -6,7 +6,6 @@ use irc::client::prelude::*;
 use log::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
 use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc, time};
 use tera::Tera;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -120,7 +119,7 @@ pub struct IrcBot {
     msg_host: String,
     msg_userhost: String,
 
-    op_sender: Option<Arc<UnboundedSender<ModeOper>>>,
+    op_sender: Option<UnboundedSender<ModeOper>>,
     handlers_irc_cmd: Vec<IrcCmdHandler>,
     handlers_privmsg_open: HashMap<String, MsgHandler>,
     handlers_privmsg_priv: HashMap<String, MsgHandler>,
@@ -308,7 +307,7 @@ impl IrcBot {
     fn start_op_queue(&mut self) {
         let irc_sender = self.irc_sender.clone();
         let (tx, rx) = mpsc::unbounded_channel::<ModeOper>();
-        self.op_sender = Some(Arc::new(tx));
+        self.op_sender = Some(tx);
 
         tokio::spawn(async move {
             read_op_queue(irc_sender, rx).await;
@@ -317,7 +316,7 @@ impl IrcBot {
 
     fn mode(&self, mode: MyMode, channel: String, nick: String) -> anyhow::Result<bool> {
         info!("Giving +{mode:?} on {channel} to {nick}");
-        let op_sender = self.op_sender.as_ref().unwrap().deref();
+        let op_sender = self.op_sender.as_ref().unwrap();
         op_sender.send(ModeOper {
             mode,
             channel,
