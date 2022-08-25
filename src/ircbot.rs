@@ -6,14 +6,18 @@ use irc::client::prelude::*;
 use log::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, time};
+use std::ops::Deref;
+use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc, time};
 use tera::Tera;
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::time::{sleep, Duration};
 use url::Url;
 use webpage::{Webpage, WebpageOptions}; // provides `try_next`
 
 use crate::*;
 
-const HASH_INITIAL_SIZE: usize = 8;
+const INITIAL_SIZE: usize = 32;
+const IRCMODE_RATE: u64 = 5; // in seconds
 
 pub type IrcCmdHandler = fn(&IrcBot, &irc::proto::Command) -> anyhow::Result<bool>;
 pub type MsgHandler = fn(&mut IrcBot, &str, &str, &str) -> anyhow::Result<bool>;
@@ -92,8 +96,22 @@ impl BotConfig {
     }
 }
 
+#[derive(Debug, Clone)]
+enum MyMode {
+    Voice,
+    Oper,
+}
+
+#[derive(Debug, Clone)]
+struct ModeOper {
+    mode: MyMode,
+    channel: String,
+    nick: String,
+}
+
 pub struct IrcBot {
     pub irc: Client,
+    pub irc_sender: Arc<Sender>,
     pub opts: OptsCommon,
     pub bot_cfg: BotConfig,
     mynick: String,
@@ -102,6 +120,7 @@ pub struct IrcBot {
     msg_host: String,
     msg_userhost: String,
 
+    op_sender: Option<Arc<UnboundedSender<ModeOper>>>,
     handlers_irc_cmd: Vec<IrcCmdHandler>,
     handlers_privmsg_open: HashMap<String, MsgHandler>,
     handlers_privmsg_priv: HashMap<String, MsgHandler>,
@@ -129,8 +148,10 @@ impl IrcBot {
         }
 
         let mynick = irc.current_nickname().to_string();
+        let sender = irc.sender();
         Ok(IrcBot {
             irc,
+            irc_sender: Arc::new(sender),
             opts: opts.clone(),
             bot_cfg,
             mynick,
@@ -138,10 +159,11 @@ impl IrcBot {
             msg_user: "NONE".into(),
             msg_host: "NONE".into(),
             msg_userhost: "NONE@NONE".into(),
-            handlers_irc_cmd: Vec::with_capacity(HASH_INITIAL_SIZE),
-            handlers_privmsg_open: HashMap::with_capacity(HASH_INITIAL_SIZE),
-            handlers_privmsg_priv: HashMap::with_capacity(HASH_INITIAL_SIZE),
-            handlers_chanmsg: HashMap::with_capacity(HASH_INITIAL_SIZE),
+            op_sender: None,
+            handlers_irc_cmd: Vec::with_capacity(INITIAL_SIZE),
+            handlers_privmsg_open: HashMap::with_capacity(INITIAL_SIZE),
+            handlers_privmsg_priv: HashMap::with_capacity(INITIAL_SIZE),
+            handlers_chanmsg: HashMap::with_capacity(INITIAL_SIZE),
         })
     }
 
@@ -215,6 +237,7 @@ impl IrcBot {
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
+        self.start_op_queue();
         let mut stream = self.irc.stream()?;
         while let Some(message) = stream.next().await.transpose()? {
             trace!("Got msg: {message:?}");
@@ -280,6 +303,43 @@ impl IrcBot {
         }
 
         Ok(())
+    }
+
+    fn start_op_queue(&mut self) {
+        let irc_sender = self.irc_sender.clone();
+        let (tx, rx) = mpsc::unbounded_channel::<ModeOper>();
+        self.op_sender = Some(Arc::new(tx));
+
+        tokio::spawn(async move {
+            read_op_queue(irc_sender, rx).await;
+        });
+    }
+
+    fn mode(&self, mode: MyMode, channel: String, nick: String) -> anyhow::Result<bool> {
+        info!("Giving +{mode:?} on {channel} to {nick}");
+        let op_sender = self.op_sender.as_ref().unwrap().deref();
+        op_sender.send(ModeOper {
+            mode,
+            channel,
+            nick,
+        })?;
+        Ok(true)
+    }
+
+    pub fn mode_o<S1, S2>(&self, channel: S1, nick: S2) -> anyhow::Result<bool>
+    where
+        S1: AsRef<str> + Display,
+        S2: AsRef<str> + Display,
+    {
+        self.mode(MyMode::Oper, channel.to_string(), nick.to_string())
+    }
+
+    pub fn mode_v<S1, S2>(&self, channel: S1, nick: S2) -> anyhow::Result<bool>
+    where
+        S1: AsRef<str> + Display,
+        S2: AsRef<str> + Display,
+    {
+        self.mode(MyMode::Voice, channel.to_string(), nick.to_string())
     }
 
     // Process private messages here and return true only if something was reacted upon
@@ -424,39 +484,22 @@ impl IrcBot {
 
         Ok(false)
     }
+}
 
-    pub fn mode_v<S1, S2>(&self, channel: S1, nick: S2) -> anyhow::Result<bool>
-    where
-        S1: AsRef<str> + Display,
-        S2: AsRef<str> + Display,
-    {
-        info!("Giving +v on {channel} to {nick}");
-        if let Err(e) = self.irc.send_mode(
-            channel,
-            &[Mode::Plus(ChannelMode::Voice, Some(nick.to_string()))],
-        ) {
-            error!("{e}");
-            return Err(e.into());
-        }
-        // self.irc.send_privmsg(nick.as_ref(), "You got +v now.").ok();
-        Ok(true)
-    }
+// We are throttling channel mode operations here
+async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<ModeOper>) {
+    while let Some(o) = rx.recv().await {
+        let op = match o.mode {
+            MyMode::Oper => ChannelMode::Oper,
+            MyMode::Voice => ChannelMode::Voice,
+        };
+        let channel = o.channel;
+        let nick = o.nick;
 
-    pub fn mode_o<S1, S2>(&self, channel: S1, nick: S2) -> anyhow::Result<bool>
-    where
-        S1: AsRef<str> + Display,
-        S2: AsRef<str> + Display,
-    {
-        info!("Giving +o on {channel} to {nick}");
-        if let Err(e) = self.irc.send_mode(
-            channel,
-            &[Mode::Plus(ChannelMode::Oper, Some(nick.to_string()))],
-        ) {
+        if let Err(e) = irc_sender.send_mode(channel, &[Mode::Plus(op, Some(nick))]) {
             error!("{e}");
-            return Err(e.into());
         }
-        // self.irc.send_privmsg(nick.as_ref(), "You got +v now.").ok();
-        Ok(true)
+        sleep(Duration::from_secs(IRCMODE_RATE)).await;
     }
 }
 // EOF

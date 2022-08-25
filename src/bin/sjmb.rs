@@ -31,6 +31,7 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
 
         let mut ircbot = IrcBot::new(&opts).await.unwrap();
         bot_cmd_setup(&mut ircbot);
+
         if let Err(e) = ircbot.run().await {
             error!("{e}");
         }
