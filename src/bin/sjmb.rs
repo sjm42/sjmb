@@ -107,16 +107,16 @@ fn handle_join(bot: &IrcBot, cmd: &irc::proto::Command) -> anyhow::Result<bool> 
 fn handle_pcmd_reload(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
     // *** Try reloading all runtime configs ***
     error!("*** RELOADING CONFIG ***");
+    let nick = bot.msg_nick();
     match bot.reload() {
         Ok(ret) => {
             // reinitialize command handlers
             bot_cmd_setup(bot);
-            bot.irc
-                .send_privmsg(bot.msg_nick(), "*** Reload successful.")?;
+            bot.send_msg(&nick, "*** Reload successful.")?;
             Ok(ret)
         }
         Err(e) => {
-            bot.irc.send_privmsg(bot.msg_nick(), e.to_string())?;
+            bot.send_msg(&nick, e.to_string())?;
             Err(e)
         }
     }
@@ -124,18 +124,19 @@ fn handle_pcmd_reload(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
 
 fn handle_pcmd_dumpacl(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
     info!("Dumping ACLs");
+    let nick = bot.msg_nick();
 
-    bot.irc.send_privmsg(bot.msg_nick(), "My +o ACL:")?;
+    bot.send_msg(&nick, "My +o ACL:")?;
     for s in &bot.bot_cfg.mode_o_acl_rt.as_ref().unwrap().acl {
-        bot.irc.send_privmsg(bot.msg_nick(), s)?;
+        bot.send_msg(&nick, s)?;
     }
-    bot.irc.send_privmsg(bot.msg_nick(), "<EOF>")?;
+    bot.send_msg(&nick, "<EOF>")?;
 
-    bot.irc.send_privmsg(bot.msg_nick(), "My auto +o ACL:")?;
+    bot.send_msg(&nick, "My auto +o ACL:")?;
     for s in &bot.bot_cfg.auto_o_acl_rt.as_ref().unwrap().acl {
-        bot.irc.send_privmsg(bot.msg_nick(), s)?;
+        bot.send_msg(&nick, s)?;
     }
-    bot.irc.send_privmsg(bot.msg_nick(), "<EOF>")?;
+    bot.send_msg(&nick, "<EOF>")?;
 
     Ok(true)
 }
@@ -144,14 +145,12 @@ fn handle_pcmd_say(bot: &mut IrcBot, _: &str, _: &str, say: &str) -> anyhow::Res
     if say.starts_with('#') {
         // channel was specified
         if let Some((channel, msg)) = say.split_once(' ') {
-            info!("{channel} <{mynick}> {msg}", mynick = bot.mynick());
-            bot.irc.send_privmsg(channel, msg)?;
+            bot.send_msg(channel, msg)?;
             return Ok(true);
         }
     }
     let cfg_channel = &bot.bot_cfg.channel;
-    info!("{cfg_channel} <{mynick}> {say}", mynick = bot.mynick());
-    bot.irc.send_privmsg(cfg_channel, say)?;
+    bot.send_msg(cfg_channel, say)?;
     Ok(true)
 }
 
@@ -193,7 +192,7 @@ fn handle_pcmd_mode_o(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
         .mode_o_acl_rt
         .as_ref()
         .unwrap()
-        .re_match(userhost);
+        .re_match(&userhost);
     debug!(
         "ACL check took {} µs.",
         Utc::now()
