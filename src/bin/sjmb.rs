@@ -30,26 +30,32 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
         }
 
         let mut ircbot = IrcBot::new(&opts).await.unwrap();
-        ircbot.register_irc_cmd(handle_join);
-
-        ircbot.register_privmsg_priv("reload", handle_pcmd_reload);
-        ircbot.register_privmsg_priv("dumpacl", handle_pcmd_dumpacl);
-        ircbot.register_privmsg_priv("say", handle_pcmd_say);
-        ircbot.register_privmsg_priv("nick", handle_pcmd_nick);
-        ircbot.register_privmsg_priv("join", handle_pcmd_join);
-
-        // These commands are unholy because the config is massaged inside general bot config.
-        // Anyway, the public commands are configurable.
-
-        ircbot.register_privmsg_open(ircbot.bot_cfg.cmd_invite.to_string(), handle_pcmd_invite);
-        ircbot.register_privmsg_open(ircbot.bot_cfg.cmd_mode_o.to_string(), handle_pcmd_mode_o);
-        ircbot.register_privmsg_open(ircbot.bot_cfg.cmd_mode_v.to_string(), handle_pcmd_mode_v);
-
+        bot_cmd_setup(&mut ircbot);
         if let Err(e) = ircbot.run().await {
             error!("{e}");
         }
         drop(ircbot);
     }
+}
+
+fn bot_cmd_setup(bot: &mut IrcBot) {
+    bot.clear_handlers();
+
+    // Register JOIN callback
+    bot.register_irc_cmd(handle_join);
+
+    // Register commands
+    bot.register_privmsg_priv("reload", handle_pcmd_reload);
+    bot.register_privmsg_priv("dumpacl", handle_pcmd_dumpacl);
+    bot.register_privmsg_priv("say", handle_pcmd_say);
+    bot.register_privmsg_priv("nick", handle_pcmd_nick);
+    bot.register_privmsg_priv("join", handle_pcmd_join);
+
+    // These commands are unholy because the config is massaged inside general bot config.
+    // Anyway, the public commands are configurable.
+    bot.register_privmsg_open(bot.bot_cfg.cmd_invite.to_string(), handle_pcmd_invite);
+    bot.register_privmsg_open(bot.bot_cfg.cmd_mode_o.to_string(), handle_pcmd_mode_o);
+    bot.register_privmsg_open(bot.bot_cfg.cmd_mode_v.to_string(), handle_pcmd_mode_v);
 }
 
 // Process channel join messages here and return true only if something was reacted upon
@@ -102,6 +108,8 @@ fn handle_pcmd_reload(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
     error!("*** RELOADING CONFIG ***");
     match bot.reload() {
         Ok(ret) => {
+            // reinitialize command handlers
+            bot_cmd_setup(bot);
             bot.irc
                 .send_privmsg(bot.msg_nick(), "*** Reload successful.")?;
             Ok(ret)

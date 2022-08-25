@@ -145,6 +145,13 @@ impl IrcBot {
         })
     }
 
+    pub fn clear_handlers(&mut self) {
+        self.handlers_irc_cmd.clear();
+        self.handlers_privmsg_open.clear();
+        self.handlers_privmsg_priv.clear();
+        self.handlers_chanmsg.clear();
+    }
+
     pub fn reload(&mut self) -> anyhow::Result<bool> {
         match BotConfig::new(&self.opts) {
             Ok(cfg) => {
