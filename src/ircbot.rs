@@ -16,8 +16,8 @@ use webpage::{Webpage, WebpageOptions}; // provides `try_next`
 use crate::*;
 
 const INITIAL_SIZE: usize = 32;
-const IRC_MODE_RATE: u64 = 5; // in seconds
-const IRC_MSG_RATE: u64 = 1; // in seconds
+const IRC_OP_THROTTLE: u64 = 5; // in seconds
+const IRC_MSG_THROTTLE: u64 = 2; // in seconds
 
 pub type IrcCmdHandler = fn(&IrcBot, &irc::proto::Command) -> anyhow::Result<bool>;
 pub type MsgHandler = fn(&mut IrcBot, &str, &str, &str) -> anyhow::Result<bool>;
@@ -97,16 +97,12 @@ impl BotConfig {
 }
 
 #[derive(Debug, Clone)]
-enum MyMode {
-    Voice,
-    Oper,
-}
-
-#[derive(Debug, Clone)]
-struct ModeOper {
-    mode: MyMode,
-    channel: String,
-    nick: String,
+pub enum IrcOp {
+    ModeVoice(String, String),
+    ModeOper(String, String),
+    Invite(String, String),
+    Nick(String),
+    Join(String),
 }
 
 #[derive(Debug, Clone)]
@@ -126,7 +122,7 @@ pub struct IrcBot {
     msg_host: String,
     msg_userhost: String,
 
-    op_sender: Option<UnboundedSender<ModeOper>>,
+    op_sender: Option<UnboundedSender<IrcOp>>,
     msg_sender: Option<UnboundedSender<IrcMsg>>,
     handlers_irc_cmd: Vec<IrcCmdHandler>,
     handlers_privmsg_open: HashMap<String, MsgHandler>,
@@ -245,7 +241,7 @@ impl IrcBot {
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        self.start_op_queue();
+        self.start_ops_queue();
         self.start_msg_queue();
 
         let mut stream = self.irc.stream()?;
@@ -315,13 +311,13 @@ impl IrcBot {
         Ok(())
     }
 
-    fn start_op_queue(&mut self) {
+    fn start_ops_queue(&mut self) {
         let irc_sender = self.irc_sender.clone();
-        let (tx, rx) = mpsc::unbounded_channel::<ModeOper>();
+        let (tx, rx) = mpsc::unbounded_channel::<IrcOp>();
         self.op_sender = Some(tx);
 
         tokio::spawn(async move {
-            read_op_queue(irc_sender, rx).await;
+            read_ops_queue(irc_sender, rx).await;
         });
     }
 
@@ -335,34 +331,13 @@ impl IrcBot {
         });
     }
 
-    pub fn mode_o<S1, S2>(&self, channel: S1, nick: S2) -> anyhow::Result<bool>
-    where
-        S1: AsRef<str> + Display,
-        S2: AsRef<str> + Display,
-    {
-        self.mode(MyMode::Oper, channel.to_string(), nick.to_string())
-    }
-
-    pub fn mode_v<S1, S2>(&self, channel: S1, nick: S2) -> anyhow::Result<bool>
-    where
-        S1: AsRef<str> + Display,
-        S2: AsRef<str> + Display,
-    {
-        self.mode(MyMode::Voice, channel.to_string(), nick.to_string())
-    }
-
-    fn mode(&self, mode: MyMode, channel: String, nick: String) -> anyhow::Result<bool> {
-        info!("Giving +{mode:?} on {channel} to {nick}");
+    pub fn new_op(&self, op: IrcOp) -> anyhow::Result<bool> {
         let op_sender = self.op_sender.as_ref().unwrap();
-        op_sender.send(ModeOper {
-            mode,
-            channel,
-            nick,
-        })?;
+        op_sender.send(op)?;
         Ok(true)
     }
 
-    pub fn send_msg<S1, S2>(&self, target: S1, msg: S2) -> anyhow::Result<()>
+    pub fn new_msg<S1, S2>(&self, target: S1, msg: S2) -> anyhow::Result<()>
     where
         S1: AsRef<str> + Display,
         S2: AsRef<str> + Display,
@@ -472,7 +447,7 @@ impl IrcBot {
                 for res_cap in c.output_filter_re.as_ref().unwrap().captures_iter(&body) {
                     let res_str = &res_cap[1];
                     let say = format!("{u_cmd} --> {res_str}");
-                    self.send_msg(&channel, &say)?;
+                    self.new_msg(&channel, &say)?;
                 }
 
                 return Ok(true);
@@ -507,7 +482,7 @@ impl IrcBot {
                             // ignore titles that are just the url repeated
                             if title != url_s {
                                 let say = format!("\"{title}\"");
-                                self.send_msg(&channel, &say)?;
+                                self.new_msg(&channel, &say)?;
                             }
                         }
                     }
@@ -520,22 +495,6 @@ impl IrcBot {
     }
 }
 
-// We are throttling channel mode operations here
-async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<ModeOper>) {
-    while let Some(o) = rx.recv().await {
-        let op = match o.mode {
-            MyMode::Oper => ChannelMode::Oper,
-            MyMode::Voice => ChannelMode::Voice,
-        };
-        let (channel, nick) = (o.channel, o.nick);
-
-        if let Err(e) = irc_sender.send_mode(channel, &[Mode::Plus(op, Some(nick))]) {
-            error!("{e}");
-        }
-        sleep(Duration::from_secs(IRC_MODE_RATE)).await;
-    }
-}
-
 // We are throttling messages here
 async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcMsg>) {
     while let Some(m) = rx.recv().await {
@@ -543,8 +502,28 @@ async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcMs
         if let Err(e) = irc_sender.send_privmsg(target, msg) {
             error!("{e}");
         }
-        sleep(Duration::from_secs(IRC_MSG_RATE)).await;
+        sleep(Duration::from_secs(IRC_MSG_THROTTLE)).await;
     }
 }
 
+// We are throttling operations (mode/join/invite/nick etc) here
+async fn read_ops_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcOp>) {
+    while let Some(op) = rx.recv().await {
+        let res = match op {
+            IrcOp::Invite(nick, channel) => irc_sender.send_invite(nick, channel),
+            IrcOp::Join(newchan) => irc_sender.send(Command::JOIN(newchan, None, None)),
+            IrcOp::ModeOper(channel, nick) => {
+                irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Oper, Some(nick))])
+            }
+            IrcOp::ModeVoice(channel, nick) => {
+                irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Voice, Some(nick))])
+            }
+            IrcOp::Nick(newnick) => irc_sender.send(Command::NICK(newnick)),
+        };
+        if let Err(e) = res {
+            error!("{e}");
+        }
+        sleep(Duration::from_secs(IRC_OP_THROTTLE)).await;
+    }
+}
 // EOF

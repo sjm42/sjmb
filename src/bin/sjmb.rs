@@ -61,16 +61,14 @@ fn bot_cmd_setup(bot: &mut IrcBot) {
 
 // Process channel join messages here and return true only if something was reacted upon
 fn handle_join(bot: &IrcBot, cmd: &irc::proto::Command) -> anyhow::Result<bool> {
-    let ch = match cmd {
+    let channel = match cmd {
         Command::JOIN(ch, _, _) => ch,
         _ => return Ok(false),
     };
+    let nick = bot.msg_nick();
+    let userhost = bot.msg_userhost();
 
-    info!(
-        "JOIN <{nick}> {userhost} {ch}",
-        nick = bot.msg_nick(),
-        userhost = bot.msg_userhost(),
-    );
+    info!("JOIN <{nick}> {userhost} {channel}",);
     if bot.msg_nick() == bot.mynick() {
         // Ignore self join :p
         return Ok(false);
@@ -82,9 +80,9 @@ fn handle_join(bot: &IrcBot, cmd: &irc::proto::Command) -> anyhow::Result<bool> 
         .auto_o_acl_rt
         .as_ref()
         .unwrap()
-        .re_match(&bot.msg_userhost());
+        .re_match(&userhost);
     debug!(
-        "ACL check took {} µs.",
+        "Auto-op acl check took {} µs.",
         Utc::now()
             .signed_duration_since(now1)
             .num_microseconds()
@@ -92,11 +90,8 @@ fn handle_join(bot: &IrcBot, cmd: &irc::proto::Command) -> anyhow::Result<bool> 
     );
 
     if let Some((i, s)) = acl_resp {
-        info!(
-            "JOIN auto-op: ACL match {userhost} at index {i}: {s}",
-            userhost = bot.msg_userhost()
-        );
-        bot.mode_o(ch, &bot.msg_nick())?;
+        info!("JOIN auto-op: ACL match {userhost} at index {i}: {s}",);
+        bot.new_op(IrcOp::ModeOper(channel.into(), nick))?;
         return Ok(true);
     }
 
@@ -112,11 +107,11 @@ fn handle_pcmd_reload(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
         Ok(ret) => {
             // reinitialize command handlers
             bot_cmd_setup(bot);
-            bot.send_msg(&nick, "*** Reload successful.")?;
+            bot.new_msg(&nick, "*** Reload successful.")?;
             Ok(ret)
         }
         Err(e) => {
-            bot.send_msg(&nick, e.to_string())?;
+            bot.new_msg(&nick, e.to_string())?;
             Err(e)
         }
     }
@@ -126,17 +121,17 @@ fn handle_pcmd_dumpacl(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::R
     info!("Dumping ACLs");
     let nick = bot.msg_nick();
 
-    bot.send_msg(&nick, "My +o ACL:")?;
+    bot.new_msg(&nick, "My +o ACL:")?;
     for s in &bot.bot_cfg.mode_o_acl_rt.as_ref().unwrap().acl {
-        bot.send_msg(&nick, s)?;
+        bot.new_msg(&nick, s)?;
     }
-    bot.send_msg(&nick, "<EOF>")?;
+    bot.new_msg(&nick, "<EOF>")?;
 
-    bot.send_msg(&nick, "My auto +o ACL:")?;
+    bot.new_msg(&nick, "My auto +o ACL:")?;
     for s in &bot.bot_cfg.auto_o_acl_rt.as_ref().unwrap().acl {
-        bot.send_msg(&nick, s)?;
+        bot.new_msg(&nick, s)?;
     }
-    bot.send_msg(&nick, "<EOF>")?;
+    bot.new_msg(&nick, "<EOF>")?;
 
     Ok(true)
 }
@@ -145,24 +140,24 @@ fn handle_pcmd_say(bot: &mut IrcBot, _: &str, _: &str, say: &str) -> anyhow::Res
     if say.starts_with('#') {
         // channel was specified
         if let Some((channel, msg)) = say.split_once(' ') {
-            bot.send_msg(channel, msg)?;
+            bot.new_msg(channel, msg)?;
             return Ok(true);
         }
     }
     let cfg_channel = &bot.bot_cfg.channel;
-    bot.send_msg(cfg_channel, say)?;
+    bot.new_msg(cfg_channel, say)?;
     Ok(true)
 }
 
 fn handle_pcmd_nick(bot: &mut IrcBot, _: &str, _: &str, newnick: &str) -> anyhow::Result<bool> {
     info!("Trying to change nick to {newnick}");
-    bot.irc.send(Command::NICK(newnick.into()))?;
+    bot.new_op(IrcOp::Nick(newnick.into()))?;
     Ok(true)
 }
 
 fn handle_pcmd_join(bot: &mut IrcBot, _: &str, _: &str, newchan: &str) -> anyhow::Result<bool> {
     info!("Trying to join channel {newchan}");
-    bot.irc.send(Command::JOIN(newchan.into(), None, None))?;
+    bot.new_op(IrcOp::Join(newchan.into()))?;
     Ok(true)
 }
 
@@ -170,21 +165,16 @@ fn handle_pcmd_join(bot: &mut IrcBot, _: &str, _: &str, newchan: &str) -> anyhow
 
 fn handle_pcmd_invite(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
     let nick = bot.msg_nick();
-    let channel = &bot.bot_cfg.channel;
+    let channel = bot.bot_cfg.channel.to_string();
     info!("Inviting {nick} to {channel}");
-    match bot.irc.send_invite(nick, channel) {
-        Err(e) => {
-            error!("{e}");
-            Err(e.into())
-        }
-        Ok(_) => Ok(true),
-    }
+    bot.new_op(IrcOp::Invite(nick, channel))?;
+    Ok(true)
 }
 
 fn handle_pcmd_mode_o(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
     let nick = bot.msg_nick();
     let userhost = bot.msg_userhost();
-    let channel = &bot.bot_cfg.channel;
+    let channel = bot.bot_cfg.channel.to_string();
 
     let now1 = Utc::now();
     let acl_resp = bot
@@ -204,19 +194,19 @@ fn handle_pcmd_mode_o(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
     match acl_resp {
         Some((i, s)) => {
             info!("ACL match {userhost} at index {i}: {s}");
-            bot.mode_o(channel, nick)
+            bot.new_op(IrcOp::ModeOper(channel, nick))
         }
         None => {
             info!("ACL check failed for {userhost}. Fallback +v.");
-            bot.mode_v(channel, nick)
+            bot.new_op(IrcOp::ModeVoice(channel, nick))
         }
     }
 }
 
 fn handle_pcmd_mode_v(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
     let nick = bot.msg_nick();
-    let channel = &bot.bot_cfg.channel;
-    bot.mode_v(channel, nick)
+    let channel = bot.bot_cfg.channel.to_string();
+    bot.new_op(IrcOp::ModeVoice(channel, nick))
 }
 
 // EOF
