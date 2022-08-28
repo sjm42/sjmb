@@ -112,9 +112,9 @@ struct IrcMsg {
 }
 
 pub struct IrcBot {
-    pub irc: Client,
-    pub irc_sender: Arc<Sender>,
-    pub opts: OptsCommon,
+    irc: Client,
+    irc_sender: Arc<Sender>,
+    opts: OptsCommon,
     pub bot_cfg: BotConfig,
     mynick: String,
     msg_nick: String,
