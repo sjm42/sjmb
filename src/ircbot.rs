@@ -103,6 +103,8 @@ pub enum IrcOp {
     Invite(String, String),
     Nick(String),
     Join(String),
+    UrlTitle(String, String),
+    UrlFetch(String, String, Regex),
 }
 
 #[derive(Debug, Clone)]
@@ -241,7 +243,7 @@ impl IrcBot {
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        self.start_ops_queue();
+        self.start_op_queue();
         self.start_msg_queue();
 
         let mut stream = self.irc.stream()?;
@@ -285,10 +287,8 @@ impl IrcBot {
                         if let Err(e) = self.handle_privmsg(msg.as_str(), cmd, args) {
                             error!("PRIVMSG handling failed: {e}");
                         }
-                    } else if let Err(e) =
-                        self.handle_chanmsg(&channel, msg.as_str(), cmd, args).await
-                    {
-                        error!("Channel msg handling failed: {e}");
+                    } else if let Err(e) = self.handle_chanmsg(&channel, msg.as_str(), cmd, args) {
+                        error!("CHANMSG handling failed: {e}");
                     }
                 }
 
@@ -311,13 +311,13 @@ impl IrcBot {
         Ok(())
     }
 
-    fn start_ops_queue(&mut self) {
+    fn start_op_queue(&mut self) {
         let irc_sender = self.irc_sender.clone();
         let (tx, rx) = mpsc::unbounded_channel::<IrcOp>();
         self.op_sender = Some(tx);
 
         tokio::spawn(async move {
-            read_ops_queue(irc_sender, rx).await;
+            read_op_queue(irc_sender, rx).await;
         });
     }
 
@@ -395,7 +395,7 @@ impl IrcBot {
     }
 
     // Process channel messages here and return true only if something was reacted upon
-    async fn handle_chanmsg(
+    fn handle_chanmsg(
         &mut self,
         channel: &str,
         msg: &str,
@@ -427,29 +427,8 @@ impl IrcBot {
 
                 let url = cfg.url_cmd_tera.as_ref().unwrap().render(u_cmd, &ctx)?;
                 info!("URL cmd: !{u_cmd} --> {url}");
-
-                let client = reqwest::Client::builder()
-                    .connect_timeout(time::Duration::new(5, 0))
-                    .timeout(time::Duration::new(10, 0))
-                    .danger_accept_invalid_certs(true)
-                    .danger_accept_invalid_hostnames(true)
-                    .min_tls_version(reqwest::tls::Version::TLS_1_0)
-                    .user_agent(format!(
-                        "{} v{}",
-                        env!("CARGO_PKG_NAME"),
-                        env!("CARGO_PKG_VERSION")
-                    ))
-                    .build()?;
-
-                let body = client.get(&url).send().await?.text().await?;
-                debug!("Got body:\n{body}");
-
-                for res_cap in c.output_filter_re.as_ref().unwrap().captures_iter(&body) {
-                    let res_str = &res_cap[1];
-                    let say = format!("{u_cmd} --> {res_str}");
-                    self.new_msg(&channel, &say)?;
-                }
-
+                let f = c.output_filter_re.as_ref().unwrap().clone();
+                self.new_op(IrcOp::UrlFetch(url, channel.to_string(), f))?;
                 return Ok(true);
             }
         }
@@ -464,29 +443,9 @@ impl IrcBot {
                 .captures_iter(msg.as_ref())
             {
                 found_url = true;
-                let url_s = &url_cap[1];
-                if let Ok(url) = Url::parse(url_s) {
-                    // Now we should have a canonical url, IDN handled etc.
-                    let url_c = String::from(url);
-                    info!("*** detected url: {url_c}");
-                    info!("Fetching URL {url_c}");
-
-                    let webpage_opts = WebpageOptions {
-                        allow_insecure: true,
-                        timeout: time::Duration::new(5, 0),
-                        ..Default::default()
-                    };
-
-                    if let Ok(pageinfo) = Webpage::from_url(&url_c, webpage_opts) {
-                        if let Some(title) = pageinfo.html.title {
-                            // ignore titles that are just the url repeated
-                            if title != url_s {
-                                let say = format!("\"{title}\"");
-                                self.new_msg(&channel, &say)?;
-                            }
-                        }
-                    }
-                }
+                let url_s = url_cap[1].to_string();
+                info!("*** detected url: {url_s}");
+                self.new_op(IrcOp::UrlTitle(url_s, channel.to_string()))?;
             }
             return Ok(found_url);
         }
@@ -507,23 +466,86 @@ async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcMs
 }
 
 // We are throttling operations (mode/join/invite/nick etc) here
-async fn read_ops_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcOp>) {
+async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcOp>) {
     while let Some(op) = rx.recv().await {
-        let res = match op {
-            IrcOp::Invite(nick, channel) => irc_sender.send_invite(nick, channel),
-            IrcOp::Join(newchan) => irc_sender.send(Command::JOIN(newchan, None, None)),
-            IrcOp::ModeOper(channel, nick) => {
-                irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Oper, Some(nick))])
-            }
-            IrcOp::ModeVoice(channel, nick) => {
-                irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Voice, Some(nick))])
-            }
-            IrcOp::Nick(newnick) => irc_sender.send(Command::NICK(newnick)),
-        };
+        let res = op_dispatch(irc_sender.clone(), op).await;
         if let Err(e) = res {
             error!("{e}");
         }
         sleep(Duration::from_secs(IRC_OP_THROTTLE)).await;
     }
 }
+
+async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
+    match op {
+        IrcOp::Invite(nick, channel) => irc_sender.send_invite(nick, channel)?,
+        IrcOp::Join(newchan) => irc_sender.send(Command::JOIN(newchan, None, None))?,
+        IrcOp::ModeOper(channel, nick) => {
+            irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Oper, Some(nick))])?
+        }
+        IrcOp::ModeVoice(channel, nick) => {
+            irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Voice, Some(nick))])?
+        }
+        IrcOp::Nick(newnick) => irc_sender.send(Command::NICK(newnick))?,
+        IrcOp::UrlTitle(url, channel) => op_handle_urltitle(irc_sender.clone(), url, channel)?,
+        IrcOp::UrlFetch(url, channel, output_filter) => {
+            op_handle_urlfetch(irc_sender.clone(), url, channel, output_filter).await?
+        }
+    }
+    Ok(())
+}
+
+fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> anyhow::Result<()> {
+    let url_p = Url::parse(&url)?;
+
+    // Now we should have a canonical url, IDN handled etc.
+    let url_c = String::from(url_p);
+    info!("Fetching URL {url_c}");
+    let webpage_opts = WebpageOptions {
+        allow_insecure: true,
+        timeout: time::Duration::new(5, 0),
+        ..Default::default()
+    };
+    let pageinfo = Webpage::from_url(&url_c, webpage_opts)?;
+    if let Some(title) = pageinfo.html.title {
+        // ignore titles that are just the url repeated
+        if title != url_c {
+            let say = format!("\"{title}\"");
+            irc_sender.send_privmsg(&channel, &say)?;
+        }
+    }
+    Ok(())
+}
+
+async fn op_handle_urlfetch(
+    irc_sender: Arc<Sender>,
+    url: String,
+    channel: String,
+    output_filter: Regex,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(time::Duration::new(5, 0))
+        .timeout(time::Duration::new(10, 0))
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .min_tls_version(reqwest::tls::Version::TLS_1_0)
+        .user_agent(format!(
+            "{} v{}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()?;
+
+    let resp = client.get(&url).send().await?;
+    let body = resp.text().await?;
+    debug!("Got body:\n{body}");
+    for res_cap in output_filter.captures_iter(&body) {
+        let res_str = &res_cap[1];
+        let say = format!("--> {res_str}");
+        irc_sender.send_privmsg(&channel, &say)?;
+    }
+
+    Ok(())
+}
+
 // EOF

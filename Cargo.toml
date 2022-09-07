@@ -1,6 +1,6 @@
 [package]
 name = "sjmb"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot, a stoopid one"
 repository = "https://github.com/sjm42/sjmb"
@@ -23,7 +23,7 @@ serde_json = "1.0"
 shellexpand = "2.1"
 structopt = "0.3"
 tera = "1.17"
-tokio = { version = "1.20", features = ["full"] }
+tokio = { version = "1.21", features = ["full"] }
 url = "2.2"
 webpage = "1.4"
 
