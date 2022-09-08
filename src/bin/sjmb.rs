@@ -61,10 +61,12 @@ fn bot_cmd_setup(bot: &mut IrcBot) {
 
 // Process channel join messages here and return true only if something was reacted upon
 fn handle_join(bot: &IrcBot, cmd: &irc::proto::Command) -> anyhow::Result<bool> {
+    // We get called for all commands, this filter out only JOIN, otherwise bail out
     let channel = match cmd {
         Command::JOIN(ch, _, _) => ch,
         _ => return Ok(false),
     };
+
     let nick = bot.msg_nick();
     let userhost = bot.msg_userhost();
 
