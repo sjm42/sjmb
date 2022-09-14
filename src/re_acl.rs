@@ -27,12 +27,12 @@ impl ReAcl {
 
         Ok(acl)
     }
-    pub fn re_match<S>(&self, userhost: S) -> Option<(usize, String)>
+    pub fn re_match<S>(&self, text: S) -> Option<(usize, String)>
     where
         S: AsRef<str>,
     {
         for (i, re) in self.acl_re.as_ref().unwrap().iter().enumerate() {
-            if re.is_match(userhost.as_ref()) {
+            if re.is_match(text.as_ref()) {
                 // return index of match along with the matched regex string
                 return Some((i, self.acl[i].to_string()));
             }

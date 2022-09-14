@@ -14,11 +14,11 @@ async fn main() -> anyhow::Result<()> {
     opts.start_pgm("sjmb");
     info!("Starting up");
 
-    never_gonna_give_you_up(opts).await;
+    never_gonna_give_you_up(opts).await?;
     Ok(())
 }
 
-async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
+async fn never_gonna_give_you_up(opts: OptsCommon) -> anyhow::Result<()> {
     let mut first_time = true;
     loop {
         if first_time {
@@ -29,7 +29,7 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> ! {
             error!("Retrying start");
         }
 
-        let mut ircbot = IrcBot::new(&opts).await.unwrap();
+        let mut ircbot = IrcBot::new(&opts).await?;
         bot_cmd_setup(&mut ircbot);
 
         if let Err(e) = ircbot.run().await {
@@ -81,14 +81,14 @@ fn handle_join(bot: &IrcBot, cmd: &irc::proto::Command) -> anyhow::Result<bool> 
         .bot_cfg
         .auto_o_acl_rt
         .as_ref()
-        .unwrap()
+        .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
         .re_match(&userhost);
     debug!(
         "Auto-op acl check took {} µs.",
         Utc::now()
             .signed_duration_since(now1)
             .num_microseconds()
-            .unwrap_or(0)
+            .unwrap_or(-1)
     );
 
     if let Some((i, s)) = acl_resp {
@@ -124,13 +124,25 @@ fn handle_pcmd_dumpacl(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::R
     let nick = bot.msg_nick();
 
     bot.new_msg(&nick, "My +o ACL:")?;
-    for s in &bot.bot_cfg.mode_o_acl_rt.as_ref().unwrap().acl {
+    for s in &bot
+        .bot_cfg
+        .mode_o_acl_rt
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
+        .acl
+    {
         bot.new_msg(&nick, s)?;
     }
     bot.new_msg(&nick, "<EOF>")?;
 
     bot.new_msg(&nick, "My auto +o ACL:")?;
-    for s in &bot.bot_cfg.auto_o_acl_rt.as_ref().unwrap().acl {
+    for s in &bot
+        .bot_cfg
+        .auto_o_acl_rt
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
+        .acl
+    {
         bot.new_msg(&nick, s)?;
     }
     bot.new_msg(&nick, "<EOF>")?;
@@ -183,14 +195,14 @@ fn handle_pcmd_mode_o(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
         .bot_cfg
         .mode_o_acl_rt
         .as_ref()
-        .unwrap()
+        .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
         .re_match(&userhost);
     debug!(
         "ACL check took {} µs.",
         Utc::now()
             .signed_duration_since(now1)
             .num_microseconds()
-            .unwrap_or(0)
+            .unwrap_or(-1)
     );
 
     match acl_resp {

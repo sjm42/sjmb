@@ -332,7 +332,10 @@ impl IrcBot {
     }
 
     pub fn new_op(&self, op: IrcOp) -> anyhow::Result<bool> {
-        let op_sender = self.op_sender.as_ref().unwrap();
+        let op_sender = self
+            .op_sender
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No sender"))?;
         op_sender.send(op)?;
         Ok(true)
     }
@@ -345,7 +348,10 @@ impl IrcBot {
         let (target_s, msg_s) = (target.to_string(), msg.to_string());
         let mynick = &self.mynick;
         info!("{target_s} <{mynick}> {msg_s}");
-        let msg_sender = self.msg_sender.as_ref().unwrap();
+        let msg_sender = self
+            .msg_sender
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No sender"))?;
         msg_sender.send(IrcMsg {
             target: target_s,
             msg: msg_s,
@@ -425,9 +431,17 @@ impl IrcBot {
                 ctx.insert("args", &u_args);
                 debug!("Url cmd ctx: {ctx:#?}");
 
-                let url = cfg.url_cmd_tera.as_ref().unwrap().render(u_cmd, &ctx)?;
+                let url = cfg
+                    .url_cmd_tera
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("No tera"))?
+                    .render(u_cmd, &ctx)?;
                 info!("URL cmd: !{u_cmd} --> {url}");
-                let f = c.output_filter_re.as_ref().unwrap().clone();
+                let f = c
+                    .output_filter_re
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("No output regex"))?
+                    .clone();
                 self.new_op(IrcOp::UrlFetch(url, channel.to_string(), f))?;
                 return Ok(true);
             }
@@ -439,7 +453,7 @@ impl IrcBot {
             for url_cap in cfg
                 .url_regex_re
                 .as_ref()
-                .unwrap()
+                .ok_or_else(|| anyhow::anyhow!("No URL regex"))?
                 .captures_iter(msg.as_ref())
             {
                 found_url = true;
