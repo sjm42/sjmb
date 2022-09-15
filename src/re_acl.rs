@@ -31,7 +31,7 @@ impl ReAcl {
     where
         S: AsRef<str>,
     {
-        for (i, re) in self.acl_re.as_ref().unwrap().iter().enumerate() {
+        for (i, re) in self.acl_re.as_ref()?.iter().enumerate() {
             if re.is_match(text.as_ref()) {
                 // return index of match along with the matched regex string
                 return Some((i, self.acl[i].to_string()));
