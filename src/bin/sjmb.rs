@@ -11,8 +11,7 @@ use structopt::StructOpt;
 async fn main() -> anyhow::Result<()> {
     let mut opts = OptsCommon::from_args();
     opts.finish()?;
-    opts.start_pgm("sjmb");
-    info!("Starting up");
+    opts.start_pgm(env!("CARGO_BIN_NAME"));
 
     never_gonna_give_you_up(opts).await?;
     Ok(())

@@ -38,6 +38,7 @@ impl OptsCommon {
     }
     pub fn start_pgm(&self, name: &str) {
         env_logger::Builder::new()
+            .filter_module(env!("CARGO_PKG_NAME"), self.get_loglevel())
             .filter_module(name, self.get_loglevel())
             .format_timestamp_secs()
             .init();
