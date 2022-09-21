@@ -477,7 +477,7 @@ impl IrcBot {
                         .url_mut_re
                         .as_ref()
                         .ok_or_else(|| anyhow!("No url_mut_re"))?
-                        .re_match(&url_s)
+                        .re_mut(&url_s)
                     {
                         self.new_msg(channel, new_url.as_str())?;
                         self.new_op(IrcOp::UrlTitle(new_url, channel.to_string()))?;

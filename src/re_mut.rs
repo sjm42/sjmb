@@ -22,7 +22,7 @@ impl ReMut {
         }
         Ok(Self { re_str, re_vec })
     }
-    pub fn re_match<S>(&self, text: S) -> Option<(usize, String)>
+    pub fn re_mut<S>(&self, text: S) -> Option<(usize, String)>
     where
         S: AsRef<str>,
     {
@@ -35,5 +35,4 @@ impl ReMut {
         None
     }
 }
-
 // EOF
