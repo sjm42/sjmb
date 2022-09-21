@@ -457,8 +457,8 @@ impl IrcBot {
         }
 
         // Are we supposed to detect urls and show titles on this channel?
+        let mut found_url = false;
         if let Some(true) = cfg.url_fetch_channels.get(channel) {
-            let mut found_url = false;
             for url_cap in cfg
                 .url_re
                 .as_ref()
@@ -484,8 +484,13 @@ impl IrcBot {
                     }
                 }
             }
+        }
+
+        // more processing might happen here
+        if found_url {
             return Ok(found_url);
         }
+        // ...or here
 
         Ok(false)
     }
