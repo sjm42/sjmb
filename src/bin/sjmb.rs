@@ -128,7 +128,7 @@ fn handle_pcmd_dumpacl(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::R
         .mode_o_acl_rt
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
-        .acl
+        .acl_str
     {
         bot.new_msg(&nick, s)?;
     }
@@ -140,7 +140,7 @@ fn handle_pcmd_dumpacl(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::R
         .auto_o_acl_rt
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
-        .acl
+        .acl_str
     {
         bot.new_msg(&nick, s)?;
     }

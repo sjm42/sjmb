@@ -1,5 +1,6 @@
 // ircbot.rs
 
+use anyhow::{anyhow, bail};
 use chrono::*;
 use futures::prelude::*;
 use irc::client::prelude::*;
@@ -36,16 +37,19 @@ pub struct BotConfig {
     pub channel: String,
     pub privileged_nicks: HashMap<String, bool>,
 
-    pub url_fetch_channels: HashMap<String, bool>,
     pub url_regex: String,
+    pub url_fetch_channels: HashMap<String, bool>,
+    pub url_cmd_channels: HashMap<String, bool>,
+    pub url_mut_channels: HashMap<String, bool>,
 
-    pub cmd_invite: String, // magic word to get /invite
-    pub cmd_mode_o: String, // magic word to get +o
-    pub cmd_mode_v: String, // magic word to get +v
-    pub mode_o_acl: String, // json file for +o ACL
-    pub auto_o_acl: String, // json file for auto-op ACL
+    pub cmd_invite: String,      // magic word to get /invite
+    pub cmd_mode_o: String,      // magic word to get +o
+    pub cmd_mode_v: String,      // magic word to get +v
+    pub mode_o_acl: Vec<String>, // Regex list for +o ACL
+    pub auto_o_acl: Vec<String>, // Regex list for auto-op ACL
 
     pub url_cmd_list: HashMap<String, UrlCmd>,
+    pub url_mut_list: Vec<(String, String)>,
 
     #[serde(skip)]
     pub mode_o_acl_rt: Option<ReAcl>,
@@ -53,9 +57,11 @@ pub struct BotConfig {
     pub auto_o_acl_rt: Option<ReAcl>,
 
     #[serde(skip)]
-    pub url_regex_re: Option<Regex>,
+    pub url_re: Option<Regex>,
     #[serde(skip)]
     pub url_cmd_tera: Option<Tera>,
+    #[serde(skip)]
+    pub url_mut_re: Option<ReMut>,
 }
 
 impl BotConfig {
@@ -68,15 +74,13 @@ impl BotConfig {
 
         // Expand $HOME where relevant
         config.irc_log_dir = shellexpand::full(&config.irc_log_dir)?.into_owned();
-        config.mode_o_acl = shellexpand::full(&config.mode_o_acl)?.into_owned();
-        config.auto_o_acl = shellexpand::full(&config.auto_o_acl)?.into_owned();
 
-        // read in & parse ACLs (json)
+        // read & parse ACLs ()
         config.mode_o_acl_rt = Some(ReAcl::new(&config.mode_o_acl)?);
         config.auto_o_acl_rt = Some(ReAcl::new(&config.auto_o_acl)?);
 
         // pre-compile url detection regex
-        config.url_regex_re = Some(Regex::new(&config.url_regex)?);
+        config.url_re = Some(Regex::new(&config.url_regex)?);
 
         // prepare url-based commands, if any
         let mut tera = Tera::default();
@@ -85,6 +89,9 @@ impl BotConfig {
             c.output_filter_re = Some(Regex::new(&c.output_filter)?);
         }
         config.url_cmd_tera = Some(tera);
+
+        // Prepare Url mutation list
+        config.url_mut_re = Some(ReMut::new(&config.url_mut_list)?);
 
         info!(
             "New runtime config successfully created in {} ms.",
@@ -137,19 +144,19 @@ impl IrcBot {
         let bot_cfg = match BotConfig::new(opts) {
             Ok(b) => b,
             Err(e) => {
-                anyhow::bail!("{e}");
+                bail!("{e}");
             }
         };
 
         let irc = match Client::new(&opts.irc_config).await {
             Ok(c) => c,
             Err(e) => {
-                anyhow::bail!("{e}");
+                bail!("{e}");
             }
         };
 
         if let Err(e) = irc.identify() {
-            anyhow::bail!("{e}");
+            bail!("{e}");
         }
 
         let mynick = irc.current_nickname().to_string();
@@ -196,7 +203,7 @@ impl IrcBot {
                     c = &self.opts.bot_config
                 );
                 error!("{msg}");
-                Err(anyhow::anyhow!(msg))
+                Err(anyhow!(msg))
             }
         }
     }
@@ -335,7 +342,7 @@ impl IrcBot {
         let op_sender = self
             .op_sender
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No sender"))?;
+            .ok_or_else(|| anyhow!("No sender"))?;
         op_sender.send(op)?;
         Ok(true)
     }
@@ -351,7 +358,7 @@ impl IrcBot {
         let msg_sender = self
             .msg_sender
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No sender"))?;
+            .ok_or_else(|| anyhow!("No sender"))?;
         msg_sender.send(IrcMsg {
             target: target_s,
             msg: msg_s,
@@ -417,7 +424,9 @@ impl IrcBot {
         }
 
         // url_cmd starts with '!'
-        if let Some(u_cmd) = cmd.strip_prefix('!') {
+        if let (Some(u_cmd), Some(true)) =
+            (cmd.strip_prefix('!'), cfg.url_cmd_channels.get(channel))
+        {
             if let Some(c) = cfg.url_cmd_list.get(u_cmd) {
                 // phew we found an url command to execute!
 
@@ -451,15 +460,29 @@ impl IrcBot {
         if let Some(true) = cfg.url_fetch_channels.get(channel) {
             let mut found_url = false;
             for url_cap in cfg
-                .url_regex_re
+                .url_re
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("No URL regex"))?
+                .ok_or_else(|| anyhow!("No url_regex_re"))?
                 .captures_iter(msg.as_ref())
             {
                 found_url = true;
                 let url_s = url_cap[1].to_string();
                 info!("*** detected url: {url_s}");
-                self.new_op(IrcOp::UrlTitle(url_s, channel.to_string()))?;
+                self.new_op(IrcOp::UrlTitle(url_s.clone(), channel.to_string()))?;
+
+                // Are we supposed to mutate some urls on this channel?
+                if let Some(true) = cfg.url_mut_channels.get(channel) {
+                    debug!("Checking url mut");
+                    if let Some((_i, new_url)) = cfg
+                        .url_mut_re
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("No url_mut_re"))?
+                        .re_match(&url_s)
+                    {
+                        self.new_msg(channel, new_url.as_str())?;
+                        self.new_op(IrcOp::UrlTitle(new_url, channel.to_string()))?;
+                    }
+                }
             }
             return Ok(found_url);
         }

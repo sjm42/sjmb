@@ -1,18 +1,28 @@
 {
     "irc_log_dir": "$HOME/sjmb/logs",
+    "channel": "#chana",
     "privileged_nicks": {
         "sjm": true
     },
-    "channel": "#chana",
+    "url_regex": "(https?://[\\w/',\":;!%@=\\-\\.\\~\\?\\#\\[\\]\\{\\}\\$\\&\\(\\)\\*\\+]+[^\\s'\"\\]\\}])",
     "url_fetch_channels": {
         "#chana": true
     },
-    "url_regex": "(https?://[\\w/',\":;!%@=\\-\\.\\~\\?\\#\\[\\]\\{\\}\\$\\&\\(\\)\\*\\+]+[^\\s'\"\\]\\}])",
+    "url_cmd_channels": {
+        "#chana": true
+    },
+    "url_mut_channels": {
+        "#chana": true
+    },
     "cmd_invite": "inviteme",
     "cmd_mode_v": "asdf",
-    "cmd_mode_o": "ghjkl",
-    "mode_o_acl": "$HOME/sjmb/config/mode_o_acl.json",
-    "auto_o_acl": "$HOME/sjmb/config/auto_o_acl.json",
+    "cmd_mode_o": "zxcväölk",
+    "mode_o_acl": [
+        "^user@example\\.com$"
+    ],
+    "auto_o_acl": [
+        "^user@example\\.com$"
+    ],
     "url_cmd_list": {
         "metar_old": {
             "url_tmpl": "https://tgftp.nws.noaa.gov/data/observations/metar/stations/{{args[0] | slugify | upper}}.TXT",
@@ -30,5 +40,11 @@
             "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{args[0] | slugify | upper}}",
             "output_filter": "(?im)<b>taf:</b>\\s*(.*)$"
         }
-    }
+    },
+    "url_mut_list": [
+        [
+            "^\\w+://[\\w\\.]*twitter.com/([^\\?]+).*$",
+            "https://nitter.net/$1"
+        ]
+    ]
 }

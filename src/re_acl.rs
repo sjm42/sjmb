@@ -2,39 +2,34 @@
 
 use log::*;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::{fs::File, io::BufReader};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct ReAcl {
-    pub acl: Vec<String>,
-    #[serde(skip)]
-    pub acl_re: Option<Vec<Regex>>,
+    pub acl_str: Vec<String>,
+    pub acl_re: Vec<Regex>,
 }
 impl ReAcl {
-    pub fn new(file: &str) -> anyhow::Result<Self> {
-        info!("Reading json acl file {file}");
-        let mut acl: Self = serde_json::from_reader(BufReader::new(File::open(file)?))?;
-        info!("Got {} entries.", acl.acl.len());
-        debug!("New ReAcl:\n{acl:#?}");
+    pub fn new(list: &Vec<String>) -> anyhow::Result<Self> {
+        info!("Got {} entries.", list.len());
+        debug!("New ReAcl:\n{list:#?}");
 
         // precompile every regex and save them
-        let mut re_vec = Vec::with_capacity(acl.acl.len());
-        for s in &acl.acl {
-            re_vec.push(Regex::new(s)?);
+        let mut acl_str = Vec::with_capacity(list.len());
+        let mut acl_re = Vec::with_capacity(list.len());
+        for s in list {
+            acl_str.push(s.to_owned());
+            acl_re.push(Regex::new(s)?);
         }
-        acl.acl_re = Some(re_vec);
-
-        Ok(acl)
+        Ok(Self { acl_str, acl_re })
     }
     pub fn re_match<S>(&self, text: S) -> Option<(usize, String)>
     where
         S: AsRef<str>,
     {
-        for (i, re) in self.acl_re.as_ref()?.iter().enumerate() {
+        for (i, re) in self.acl_re.iter().enumerate() {
             if re.is_match(text.as_ref()) {
                 // return index of match along with the matched regex string
-                return Some((i, self.acl[i].to_string()));
+                return Some((i, self.acl_str[i].to_string()));
             }
         }
         None
