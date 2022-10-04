@@ -538,6 +538,16 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
 }
 
 fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> anyhow::Result<()> {
+    static mut WS_RE: Option<Regex> = None;
+
+    // We are called sequentially via op_dispatch() and thus no race condition here.
+    unsafe {
+        if WS_RE.is_none() {
+            // pre-compile whitespace regex once
+            WS_RE = Some(Regex::new(r"\s+")?);
+        }
+    }
+
     let url_p = Url::parse(&url)?;
 
     // Now we should have a canonical url, IDN handled etc.
@@ -552,7 +562,9 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
     if let Some(title) = pageinfo.html.title {
         // ignore titles that are just the url repeated
         if title != url_c {
-            let say = format!("\"{title}\"");
+            // Replace all consecutive whitespace, including newlines etc with a single space
+            let title_c = unsafe { WS_RE.as_ref().unwrap().replace_all(&title, " ") };
+            let say = format!("\"{title_c}\"");
             irc_sender.send_privmsg(&channel, &say)?;
         }
     }
