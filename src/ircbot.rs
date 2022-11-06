@@ -208,20 +208,20 @@ impl IrcBot {
         }
     }
 
-    pub fn mynick(&self) -> String {
-        self.mynick.to_string()
+    pub fn mynick(&self) -> &str {
+        &self.mynick
     }
-    pub fn msg_nick(&self) -> String {
-        self.msg_nick.to_string()
+    pub fn msg_nick(&self) -> &str {
+        &self.msg_nick
     }
-    pub fn msg_user(&self) -> String {
-        self.msg_user.to_string()
+    pub fn msg_user(&self) -> &str {
+        &self.msg_user
     }
-    pub fn msg_host(&self) -> String {
-        self.msg_host.to_string()
+    pub fn msg_host(&self) -> &str {
+        &self.msg_host
     }
-    pub fn msg_userhost(&self) -> String {
-        self.msg_userhost.to_string()
+    pub fn msg_userhost(&self) -> &str {
+        &self.msg_userhost
     }
 
     pub fn register_irc_cmd(&mut self, handler: IrcCmdHandler) {
