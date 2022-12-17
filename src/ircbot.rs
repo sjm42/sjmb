@@ -565,7 +565,7 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
             // Replace all consecutive whitespace, including newlines etc with a single space
             let title_c = unsafe { WS_RE.as_ref().unwrap().replace_all(&title, " ") };
             let say = format!("\"{title_c}\"");
-            irc_sender.send_privmsg(&channel, &say)?;
+            irc_sender.send_privmsg(channel, say)?;
         }
     }
     Ok(())
@@ -596,7 +596,7 @@ async fn op_handle_urlfetch(
     for res_cap in output_filter.captures_iter(&body) {
         let res_str = &res_cap[1];
         let say = format!("--> {res_str}");
-        irc_sender.send_privmsg(&channel, &say)?;
+        irc_sender.send_privmsg(&channel, say)?;
     }
 
     Ok(())
