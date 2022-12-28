@@ -1,6 +1,8 @@
+# Cargo.toml
+
 [package]
 name = "sjmb"
-version = "0.7.4"
+version = "0.7.5"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot, a stoopid one"
 repository = "https://github.com/sjm42/sjmb"
@@ -36,7 +38,8 @@ build-data = "0.1"
 
 [profile.release]
 lto = true
-opt-level = 3 #default
+opt-level = "s" # static
+# opt-level = 3 # default
 # opt-level = 'z'  # Optimize for size.
 
 # EOF

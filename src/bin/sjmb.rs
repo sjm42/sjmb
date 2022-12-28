@@ -1,4 +1,4 @@
-// sjmb.rs
+// bin/sjmb.rs
 
 use chrono::*;
 use irc::client::prelude::*;
