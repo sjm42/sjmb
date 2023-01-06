@@ -2453,9 +2453,9 @@ dependencies = [
 
 [[package]]
 name = "webpage"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d03ebca8fe2492fffdb5be0f681a942665c50488348d8abc00efb470e0ea890"
+checksum = "d261bbae112cb48a95d3cc9e8873a4e40933bc54ae8eddc1eef70e952dd3b232"
 dependencies = [
  "curl",
  "html5ever",
