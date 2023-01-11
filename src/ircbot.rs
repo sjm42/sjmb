@@ -563,7 +563,26 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
         // ignore titles that are just the url repeated
         if title != url_c {
             // Replace all consecutive whitespace, including newlines etc with a single space
-            let title_c = unsafe { WS_RE.as_ref().unwrap().replace_all(&title, " ") };
+            let mut title_c = unsafe {
+                WS_RE
+                    .as_ref()
+                    .unwrap()
+                    .replace_all(&title, " ")
+                    .trim()
+                    .to_string()
+            };
+            if title_c.len() > 42 {
+                let mut i = 38;
+                loop {
+                    // find a UTF-8 code point boundary to safely split at
+                    if title_c.is_char_boundary(i) {
+                        break;
+                    }
+                    i += 1;
+                }
+                let (s1, _) = title_c.split_at(i);
+                title_c = format!("{}...", s1);
+            }
             let say = format!("\"{title_c}\"");
             irc_sender.send_privmsg(channel, say)?;
         }
