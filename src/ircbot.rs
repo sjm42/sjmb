@@ -571,8 +571,8 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
                     .trim()
                     .to_string()
             };
-            if title_c.len() > 42 {
-                let mut i = 38;
+            if title_c.len() > 400 {
+                let mut i = 396;
                 loop {
                     // find a UTF-8 code point boundary to safely split at
                     if title_c.is_char_boundary(i) {
