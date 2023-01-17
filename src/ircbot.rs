@@ -41,6 +41,9 @@ pub struct BotConfig {
     pub url_fetch_channels: HashMap<String, bool>,
     pub url_cmd_channels: HashMap<String, bool>,
     pub url_mut_channels: HashMap<String, bool>,
+    pub url_log_channels: HashMap<String, bool>,
+    pub url_log_db: String,
+    pub url_blacklist: Vec<String>,
 
     pub cmd_invite: String,      // magic word to get /invite
     pub cmd_mode_o: String,      // magic word to get +o
@@ -74,6 +77,7 @@ impl BotConfig {
 
         // Expand $HOME where relevant
         config.irc_log_dir = shellexpand::full(&config.irc_log_dir)?.into_owned();
+        config.url_log_db = shellexpand::full(&config.url_log_db)?.into_owned();
 
         // read & parse ACLs ()
         config.mode_o_acl_rt = Some(ReAcl::new(&config.mode_o_acl)?);
@@ -111,6 +115,7 @@ pub enum IrcOp {
     Nick(String),
     Join(String),
     UrlTitle(String, String),
+    UrlLog(String, String, String, String, i64),
     UrlFetch(String, String, Regex),
 }
 
@@ -154,7 +159,6 @@ impl IrcBot {
                 bail!("{e}");
             }
         };
-
         if let Err(e) = irc.identify() {
             bail!("{e}");
         }
@@ -456,39 +460,59 @@ impl IrcBot {
             }
         }
 
-        // Are we supposed to detect urls and show titles on this channel?
         let mut found_url = false;
-        if let Some(true) = cfg.url_fetch_channels.get(channel) {
-            for url_cap in cfg
-                .url_re
-                .as_ref()
-                .ok_or_else(|| anyhow!("No url_regex_re"))?
-                .captures_iter(msg.as_ref())
-            {
-                found_url = true;
-                let url_s = url_cap[1].to_string();
-                info!("*** detected url: {url_s}");
-                self.new_op(IrcOp::UrlTitle(url_s.clone(), channel.to_string()))?;
+        'outer: for url_cap in cfg
+            .url_re
+            .as_ref()
+            .ok_or_else(|| anyhow!("No url_regex_re"))?
+            .captures_iter(msg.as_ref())
+        {
+            found_url = true;
+            let url_s = url_cap[1].to_string();
+            info!("*** detected url: {url_s}");
 
-                // Are we supposed to mutate some urls on this channel?
-                if let Some(true) = cfg.url_mut_channels.get(channel) {
-                    debug!("Checking url mut");
-                    if let Some((_i, new_url)) = cfg
-                        .url_mut_re
-                        .as_ref()
-                        .ok_or_else(|| anyhow!("No url_mut_re"))?
-                        .re_mut(&url_s)
-                    {
-                        self.new_msg(channel, new_url.as_str())?;
-                        self.new_op(IrcOp::UrlTitle(new_url, channel.to_string()))?;
-                    }
+            for b in &cfg.url_blacklist {
+                if url_s.starts_with(b) {
+                    info!("*** Blacklilsted URL. Ignored.");
+                    continue 'outer;
+                }
+            }
+
+            // Are we supposed to log urls on this channel?
+            if let Some(true) = cfg.url_log_channels.get(channel) {
+                let db = cfg.url_log_db.clone();
+                self.new_op(IrcOp::UrlLog(
+                    db,
+                    url_s.clone(),
+                    channel.to_owned(),
+                    nick.to_owned(),
+                    Utc::now().timestamp(),
+                ))?;
+            }
+
+            // Are we supposed to detect urls and show titles on this channel?
+            if let Some(true) = cfg.url_fetch_channels.get(channel) {
+                self.new_op(IrcOp::UrlTitle(url_s.clone(), channel.to_owned()))?;
+            }
+
+            // Are we supposed to mutate some urls on this channel?
+            if let Some(true) = cfg.url_mut_channels.get(channel) {
+                debug!("Checking url mut");
+                if let Some((_i, new_url)) = cfg
+                    .url_mut_re
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("No url_mut_re"))?
+                    .re_mut(&url_s)
+                {
+                    self.new_msg(channel, new_url.as_str())?;
+                    self.new_op(IrcOp::UrlTitle(new_url, channel.to_string()))?;
                 }
             }
         }
 
         // more processing might happen here
         if found_url {
-            return Ok(found_url);
+            return Ok(true);
         }
         // ...or here
 
@@ -530,6 +554,9 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
         }
         IrcOp::Nick(newnick) => irc_sender.send(Command::NICK(newnick))?,
         IrcOp::UrlTitle(url, channel) => op_handle_urltitle(irc_sender.clone(), url, channel)?,
+        IrcOp::UrlLog(db, url, channel, nick, ts) => {
+            op_handle_urllog(db, url, channel, nick, ts).await?
+        }
         IrcOp::UrlFetch(url, channel, output_filter) => {
             op_handle_urlfetch(irc_sender.clone(), url, channel, output_filter).await?
         }
@@ -587,6 +614,30 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
             irc_sender.send_privmsg(channel, say)?;
         }
     }
+    Ok(())
+}
+
+async fn op_handle_urllog(
+    db: String,
+    url: String,
+    chan: String,
+    nick: String,
+    ts: i64,
+) -> anyhow::Result<()> {
+    let mut dbc = start_db(&db).await?;
+    info!(
+        "Urllog: inserted {} row(s)",
+        db_add_url(
+            &mut dbc,
+            &UrlCtx {
+                ts,
+                chan,
+                nick,
+                url,
+            },
+        )
+        .await?
+    );
     Ok(())
 }
 

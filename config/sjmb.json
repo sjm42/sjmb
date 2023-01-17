@@ -14,6 +14,15 @@
     "url_mut_channels": {
         "#chana": true
     },
+    "url_log_channels": {
+        "#chana": true
+    },
+    "url_log_db": "$HOME/sjmb/data/urllog.db",
+    "url_blacklist": [
+        "http://znc.in",
+        "https://znc.in",
+        "https://freakshells.info"
+    ],
     "cmd_invite": "inviteme",
     "cmd_mode_v": "asdf",
     "cmd_mode_o": "zxcväölk",
