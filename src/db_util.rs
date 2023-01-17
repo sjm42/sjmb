@@ -38,7 +38,7 @@ where
     let dbc = SqliteConnection::connect(&format!("sqlite:{}", db_file.as_ref())).await?;
     let db = DbCtx {
         dbc,
-        update_change: false,
+        update_change: true,
     };
     Ok(db)
 }
