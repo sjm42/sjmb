@@ -469,7 +469,7 @@ impl IrcBot {
         {
             found_url = true;
             let url_s = url_cap[1].to_string();
-            info!("*** detected url: {url_s}");
+            info!("*** ({nick} at {channel}) detected url: {url_s}");
 
             for b in &cfg.url_blacklist {
                 if url_s.starts_with(b) {
