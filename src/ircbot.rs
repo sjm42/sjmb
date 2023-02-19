@@ -38,12 +38,14 @@ pub struct BotConfig {
     pub privileged_nicks: HashMap<String, bool>,
 
     pub url_regex: String,
+    pub url_log_db: String,
+    pub url_blacklist: Vec<String>,
+
     pub url_fetch_channels: HashMap<String, bool>,
     pub url_cmd_channels: HashMap<String, bool>,
     pub url_mut_channels: HashMap<String, bool>,
     pub url_log_channels: HashMap<String, bool>,
-    pub url_log_db: String,
-    pub url_blacklist: Vec<String>,
+    pub url_dup_complain_channels: HashMap<String, bool>,
 
     pub cmd_invite: String,      // magic word to get /invite
     pub cmd_mode_o: String,      // magic word to get +o
@@ -295,10 +297,12 @@ impl IrcBot {
                     };
 
                     if channel == mynick {
-                        if let Err(e) = self.handle_privmsg(msg.as_str(), cmd, args) {
+                        if let Err(e) = self.handle_privmsg(msg.as_str(), cmd, args).await {
                             error!("PRIVMSG handling failed: {e}");
                         }
-                    } else if let Err(e) = self.handle_chanmsg(&channel, msg.as_str(), cmd, args) {
+                    } else if let Err(e) =
+                        self.handle_chanmsg(&channel, msg.as_str(), cmd, args).await
+                    {
                         error!("CHANMSG handling failed: {e}");
                     }
                 }
@@ -371,7 +375,7 @@ impl IrcBot {
     }
 
     // Process private messages here and return true only if something was reacted upon
-    fn handle_privmsg(&mut self, msg: &str, cmd: &str, args: &str) -> anyhow::Result<bool> {
+    async fn handle_privmsg(&mut self, msg: &str, cmd: &str, args: &str) -> anyhow::Result<bool> {
         let cfg = &self.bot_cfg;
         let nick = &self.msg_nick;
         let userhost = &self.msg_userhost();
@@ -412,7 +416,7 @@ impl IrcBot {
     }
 
     // Process channel messages here and return true only if something was reacted upon
-    fn handle_chanmsg(
+    async fn handle_chanmsg(
         &mut self,
         channel: &str,
         msg: &str,
@@ -428,9 +432,10 @@ impl IrcBot {
         }
 
         // url_cmd starts with '!'
-        if let (Some(u_cmd), Some(true)) =
-            (cmd.strip_prefix('!'), cfg.url_cmd_channels.get(channel))
-        {
+        if let (Some(u_cmd), Some(true)) = (
+            cmd.strip_prefix('!'),
+            get_wild(&cfg.url_cmd_channels, channel),
+        ) {
             if let Some(c) = cfg.url_cmd_list.get(u_cmd) {
                 // phew we found an url command to execute!
 
@@ -479,8 +484,16 @@ impl IrcBot {
             }
 
             // Are we supposed to log urls on this channel?
-            if let Some(true) = cfg.url_log_channels.get(channel) {
+            if let Some(true) = get_wild(&cfg.url_log_channels, channel) {
                 let db = cfg.url_log_db.clone();
+                // Are we supposed to complain about duplicate urls on this channel?
+                if let Some(true) = get_wild(&cfg.url_dup_complain_channels, channel) {
+                    let mut dbc = start_db(&db).await?;
+                    if let Some(complaint) = db_check_url(&mut dbc, &url_s, channel).await? {
+                        self.new_msg(channel, &complaint)?;
+                    }
+                }
+
                 self.new_op(IrcOp::UrlLog(
                     db,
                     url_s.clone(),
@@ -491,12 +504,12 @@ impl IrcBot {
             }
 
             // Are we supposed to detect urls and show titles on this channel?
-            if let Some(true) = cfg.url_fetch_channels.get(channel) {
+            if let Some(true) = get_wild(&cfg.url_fetch_channels, channel) {
                 self.new_op(IrcOp::UrlTitle(url_s.clone(), channel.to_owned()))?;
             }
 
             // Are we supposed to mutate some urls on this channel?
-            if let Some(true) = cfg.url_mut_channels.get(channel) {
+            if let Some(true) = get_wild(&cfg.url_mut_channels, channel) {
                 debug!("Checking url mut");
                 if let Some((_i, new_url)) = cfg
                     .url_mut_re

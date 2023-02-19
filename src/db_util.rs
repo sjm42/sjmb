@@ -1,9 +1,12 @@
 // db_util.rs
 
+use crate::*;
 use chrono::*;
+use futures::TryStreamExt;
 use log::*;
 use sqlx::{Connection, SqliteConnection};
-use std::{thread, time};
+use std::cmp::Ordering;
+use tokio::time::{sleep, Duration};
 
 const RETRY_CNT: usize = 5;
 const RETRY_SLEEP: u64 = 1;
@@ -77,7 +80,7 @@ pub async fn db_add_url(db: &mut DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
             }
         }
         error!("Retrying in {}s...", RETRY_SLEEP);
-        thread::sleep(time::Duration::new(RETRY_SLEEP, 0));
+        sleep(Duration::new(RETRY_SLEEP, 0)).await;
         retry += 1;
     }
     if db.update_change {
@@ -87,6 +90,40 @@ pub async fn db_add_url(db: &mut DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
         error!("GAVE UP after {RETRY_CNT} retries.");
     }
     Ok(rowcnt)
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CheckUrl {
+    cnt: i64,
+    min: i64,
+    max: i64,
+}
+
+const SQL_CHECK_URL: &str =
+    "select count(id) as cnt, min(seen) as min, max(seen) as max from url where url=? and channel=?";
+pub async fn db_check_url(db: &mut DbCtx, url: &str, chan: &str) -> anyhow::Result<Option<String>> {
+    let mut ret = None;
+    let mut st_check_url = sqlx::query_as::<_, CheckUrl>(SQL_CHECK_URL)
+        .bind(url)
+        .bind(chan)
+        .fetch(&mut db.dbc);
+    while let Some(row) = st_check_url.try_next().await? {
+        match row.cnt.cmp(&1) {
+            Ordering::Equal => {
+                ret = Some(format!("Wanha URL, nähty {} UTC", row.max.ts_long()));
+            }
+            Ordering::Greater => {
+                ret = Some(format!(
+                    "Wanha URL, nähty {} kertaa, ensin {} UTC ja viimeksi {} UTC",
+                    row.cnt,
+                    row.min.ts_long(),
+                    row.max.ts_long()
+                ));
+            }
+            _ => {}
+        }
+    }
+    Ok(ret)
 }
 
 // EOF

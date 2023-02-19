@@ -4,8 +4,8 @@ use chrono::*;
 use irc::client::prelude::*;
 use log::*;
 use sjmb::*;
-use std::{thread, time};
 use structopt::StructOpt;
+use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -24,7 +24,7 @@ async fn never_gonna_give_you_up(opts: OptsCommon) -> anyhow::Result<()> {
             first_time = false;
         } else {
             error!("Sleeping 10s...");
-            thread::sleep(time::Duration::from_secs(10));
+            sleep(Duration::from_secs(10)).await;
             error!("Retrying start");
         }
 
