@@ -30,6 +30,9 @@
     "url_dup_complain_channels": {
         "*": true
     },
+    "url_dup_expire_days": {
+        "*": 30
+    },
     "cmd_invite": "inviteme",
     "cmd_mode_v": "asdf",
     "cmd_mode_o": "zxcväölk",

@@ -46,6 +46,7 @@ pub struct BotConfig {
     pub url_mut_channels: HashMap<String, bool>,
     pub url_log_channels: HashMap<String, bool>,
     pub url_dup_complain_channels: HashMap<String, bool>,
+    pub url_dup_expire_days: HashMap<String, i64>,
 
     pub cmd_invite: String,      // magic word to get /invite
     pub cmd_mode_o: String,      // magic word to get +o
@@ -488,8 +489,11 @@ impl IrcBot {
                 let db = cfg.url_log_db.clone();
                 // Are we supposed to complain about duplicate urls on this channel?
                 if let Some(true) = get_wild(&cfg.url_dup_complain_channels, channel) {
+                    let expire_days = get_wild(&cfg.url_dup_expire_days, channel).unwrap_or(&7);
                     let mut dbc = start_db(&db).await?;
-                    if let Some(complaint) = db_check_url(&mut dbc, &url_s, channel).await? {
+                    if let Some(complaint) =
+                        db_check_url(&mut dbc, &url_s, channel, *expire_days * 86400).await?
+                    {
                         self.new_msg(channel, &complaint)?;
                     }
                 }

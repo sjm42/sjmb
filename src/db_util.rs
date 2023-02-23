@@ -99,13 +99,20 @@ struct CheckUrl {
     max: i64,
 }
 
-const SQL_CHECK_URL: &str =
-    "select count(id) as cnt, min(seen) as min, max(seen) as max from url where url=? and channel=?";
-pub async fn db_check_url(db: &mut DbCtx, url: &str, chan: &str) -> anyhow::Result<Option<String>> {
+const SQL_CHECK_URL: &str = "select count(id) as cnt, min(seen) as min, max(seen) as max \
+     from url \
+     where url = ? and channel = ? and seen > ?";
+pub async fn db_check_url(
+    db: &mut DbCtx,
+    url: &str,
+    chan: &str,
+    expire_s: i64,
+) -> anyhow::Result<Option<String>> {
     let mut ret = None;
     let mut st_check_url = sqlx::query_as::<_, CheckUrl>(SQL_CHECK_URL)
         .bind(url)
         .bind(chan)
+        .bind(Utc::now().timestamp() - expire_s)
         .fetch(&mut db.dbc);
     while let Some(row) = st_check_url.try_next().await? {
         match row.cnt.cmp(&1) {

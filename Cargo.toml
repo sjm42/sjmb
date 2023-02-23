@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "0.9.0"
+version = "0.9.1"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot, a stoopid one"
 repository = "https://github.com/sjm42/sjmb"
