@@ -33,6 +33,9 @@
     "url_dup_expire_days": {
         "*": 30
     },
+    "url_dup_timezone": {
+        "*": "UTC"
+    },
     "cmd_invite": "inviteme",
     "cmd_mode_v": "asdf",
     "cmd_mode_o": "zxcväölk",

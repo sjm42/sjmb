@@ -2,12 +2,15 @@
 
 use anyhow::{anyhow, bail};
 use chrono::*;
+use chrono_tz::Tz;
 use futures::prelude::*;
 use irc::client::prelude::*;
 use log::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc, time};
+use std::{
+    cmp::Ordering, collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc, time,
+};
 use tera::Tera;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::{sleep, Duration};
@@ -47,6 +50,7 @@ pub struct BotConfig {
     pub url_log_channels: HashMap<String, bool>,
     pub url_dup_complain_channels: HashMap<String, bool>,
     pub url_dup_expire_days: HashMap<String, i64>,
+    pub url_dup_timezone: HashMap<String, String>,
 
     pub cmd_invite: String,      // magic word to get /invite
     pub cmd_mode_o: String,      // magic word to get +o
@@ -68,6 +72,8 @@ pub struct BotConfig {
     pub url_cmd_tera: Option<Tera>,
     #[serde(skip)]
     pub url_mut_re: Option<ReMut>,
+    #[serde(skip)]
+    pub url_dup_tz: Option<HashMap<String, Tz>>,
 }
 
 impl BotConfig {
@@ -99,6 +105,20 @@ impl BotConfig {
 
         // Prepare Url mutation list
         config.url_mut_re = Some(ReMut::new(&config.url_mut_list)?);
+
+        let mut url_dup_tz = HashMap::new();
+        // Parse the timezones
+        for (k, v) in &config.url_dup_timezone {
+            match v.as_str().parse::<Tz>() {
+                Ok(tz) => {
+                    url_dup_tz.insert(k.to_string(), tz);
+                }
+                Err(e) => {
+                    bail!("error parsing url_dup_timezone \"{k}\": \"{v}\" - {e}");
+                }
+            }
+        }
+        config.url_dup_tz = Some(url_dup_tz);
 
         info!(
             "New runtime config successfully created in {} ms.",
@@ -487,14 +507,41 @@ impl IrcBot {
             // Are we supposed to log urls on this channel?
             if let Some(true) = get_wild(&cfg.url_log_channels, channel) {
                 let db = cfg.url_log_db.clone();
+
                 // Are we supposed to complain about duplicate urls on this channel?
                 if let Some(true) = get_wild(&cfg.url_dup_complain_channels, channel) {
                     let expire_days = get_wild(&cfg.url_dup_expire_days, channel).unwrap_or(&7);
                     let mut dbc = start_db(&db).await?;
-                    if let Some(complaint) =
+                    if let Some(old) =
                         db_check_url(&mut dbc, &url_s, channel, *expire_days * 86400).await?
                     {
-                        self.new_msg(channel, &complaint)?;
+                        // Which timezone does this channel want? Defaulting to UTC.
+                        let tz =
+                            get_wild(cfg.url_dup_tz.as_ref().unwrap(), channel).unwrap_or(&Tz::UTC);
+
+                        let ts_min = tz.from_utc_datetime(
+                            &NaiveDateTime::from_timestamp_opt(old.min, 0)
+                                .ok_or(anyhow!("timestamp error"))?,
+                        );
+
+                        let msg = match old.cnt.cmp(&1) {
+                            Ordering::Equal => {
+                                format!("Wanha URL, nähty {ts_min}")
+                            }
+                            Ordering::Greater => {
+                                let ts_max = tz.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(old.max, 0)
+                                        .ok_or(anyhow!("timestamp error"))?,
+                                );
+
+                                format!(
+                                    "Wanha URL, nähty {} kertaa, ensin {ts_min} ja viimeksi {ts_max}",
+                                    old.cnt
+                                )
+                            }
+                            _ => "???".to_string(),
+                        };
+                        self.new_msg(channel, &msg)?;
                     }
                 }
 

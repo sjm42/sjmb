@@ -1,11 +1,10 @@
 // db_util.rs
 
-use crate::*;
 use chrono::*;
 use futures::TryStreamExt;
 use log::*;
 use sqlx::{Connection, SqliteConnection};
-use std::cmp::Ordering;
+
 use tokio::time::{sleep, Duration};
 
 const RETRY_CNT: usize = 5;
@@ -93,10 +92,10 @@ pub async fn db_add_url(db: &mut DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct CheckUrl {
-    cnt: i64,
-    min: i64,
-    max: i64,
+pub struct CheckUrl {
+    pub cnt: i64,
+    pub min: i64,
+    pub max: i64,
 }
 
 const SQL_CHECK_URL: &str = "select count(id) as cnt, min(seen) as min, max(seen) as max \
@@ -107,30 +106,13 @@ pub async fn db_check_url(
     url: &str,
     chan: &str,
     expire_s: i64,
-) -> anyhow::Result<Option<String>> {
-    let mut ret = None;
+) -> anyhow::Result<Option<CheckUrl>> {
     let mut st_check_url = sqlx::query_as::<_, CheckUrl>(SQL_CHECK_URL)
         .bind(url)
         .bind(chan)
         .bind(Utc::now().timestamp() - expire_s)
         .fetch(&mut db.dbc);
-    while let Some(row) = st_check_url.try_next().await? {
-        match row.cnt.cmp(&1) {
-            Ordering::Equal => {
-                ret = Some(format!("Wanha URL, nähty {} UTC", row.max.ts_long()));
-            }
-            Ordering::Greater => {
-                ret = Some(format!(
-                    "Wanha URL, nähty {} kertaa, ensin {} UTC ja viimeksi {} UTC",
-                    row.cnt,
-                    row.min.ts_long(),
-                    row.max.ts_long()
-                ));
-            }
-            _ => {}
-        }
-    }
-    Ok(ret)
+    Ok(st_check_url.try_next().await?)
 }
 
 // EOF
