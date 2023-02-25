@@ -539,9 +539,11 @@ impl IrcBot {
                                     old.cnt
                                 )
                             }
-                            _ => "???".to_string(),
+                            _ => "".to_string(),
                         };
-                        self.new_msg(channel, &msg)?;
+                        if !msg.is_empty() {
+                            self.new_msg(channel, &msg)?;
+                        }
                     }
                 }
 
