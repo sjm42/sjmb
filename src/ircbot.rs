@@ -20,7 +20,7 @@ use webpage::{Webpage, WebpageOptions}; // provides `try_next`
 use crate::*;
 
 const INITIAL_SIZE: usize = 32;
-const IRC_OP_THROTTLE: u64 = 5; // in seconds
+const IRC_OP_THROTTLE: u64 = 1; // in seconds
 const IRC_MSG_THROTTLE: u64 = 2; // in seconds
 
 pub type IrcCmdHandler = fn(&IrcBot, &irc::proto::Command) -> anyhow::Result<bool>;
@@ -52,9 +52,15 @@ pub struct BotConfig {
     pub url_dup_expire_days: HashMap<String, i64>,
     pub url_dup_timezone: HashMap<String, String>,
 
-    pub cmd_invite: String,      // magic word to get /invite
-    pub cmd_mode_o: String,      // magic word to get +o
-    pub cmd_mode_v: String,      // magic word to get +v
+    pub cmd_dumpacl: String, // dump my ACL as privmsgs
+    pub cmd_invite: String,  // get /invite
+    pub cmd_join: String,    // make bot join a channel
+    pub cmd_mode_o: String,  // get +o
+    pub cmd_mode_v: String,  // get +v
+    pub cmd_nick: String,    // set nick of the bot
+    pub cmd_reload: String,  // reload config
+    pub cmd_say: String,     // say something to a channel
+
     pub mode_o_acl: Vec<String>, // Regex list for +o ACL
     pub auto_o_acl: Vec<String>, // Regex list for auto-op ACL
 
@@ -137,6 +143,7 @@ pub enum IrcOp {
     Invite(String, String),
     Nick(String),
     Join(String),
+    UrlCheck(String, String, String, Tz, i64),
     UrlTitle(String, String),
     UrlLog(String, String, String, String, i64),
     UrlFetch(String, String, Regex),
@@ -511,40 +518,16 @@ impl IrcBot {
                 // Are we supposed to complain about duplicate urls on this channel?
                 if let Some(true) = get_wild(&cfg.url_dup_complain_channels, channel) {
                     let expire_days = get_wild(&cfg.url_dup_expire_days, channel).unwrap_or(&7);
-                    let mut dbc = start_db(&db).await?;
-                    if let Some(old) =
-                        db_check_url(&mut dbc, &url_s, channel, *expire_days * 86400).await?
-                    {
-                        // Which timezone does this channel want? Defaulting to UTC.
-                        let tz =
-                            get_wild(cfg.url_dup_tz.as_ref().unwrap(), channel).unwrap_or(&Tz::UTC);
-
-                        let ts_min = tz.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(old.min, 0)
-                                .ok_or(anyhow!("timestamp error"))?,
-                        );
-
-                        let msg = match old.cnt.cmp(&1) {
-                            Ordering::Equal => {
-                                format!("Wanha URL, nähty {ts_min}")
-                            }
-                            Ordering::Greater => {
-                                let ts_max = tz.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(old.max, 0)
-                                        .ok_or(anyhow!("timestamp error"))?,
-                                );
-
-                                format!(
-                                    "Wanha URL, nähty {} kertaa, ensin {ts_min} ja viimeksi {ts_max}",
-                                    old.cnt
-                                )
-                            }
-                            _ => "".to_string(),
-                        };
-                        if !msg.is_empty() {
-                            self.new_msg(channel, &msg)?;
-                        }
-                    }
+                    // Which timezone does this channel want? Defaulting to UTC.
+                    let tz =
+                        get_wild(cfg.url_dup_tz.as_ref().unwrap(), channel).unwrap_or(&Tz::UTC);
+                    self.new_op(IrcOp::UrlCheck(
+                        db.clone(),
+                        url_s.clone(),
+                        channel.to_owned(),
+                        tz.to_owned(),
+                        expire_days.to_owned(),
+                    ))?;
                 }
 
                 self.new_op(IrcOp::UrlLog(
@@ -619,14 +602,111 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
             irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Voice, Some(nick))])?
         }
         IrcOp::Nick(newnick) => irc_sender.send(Command::NICK(newnick))?,
-        IrcOp::UrlTitle(url, channel) => op_handle_urltitle(irc_sender.clone(), url, channel)?,
-        IrcOp::UrlLog(db, url, channel, nick, ts) => {
-            op_handle_urllog(db, url, channel, nick, ts).await?
+        IrcOp::UrlCheck(db, url, channel, tz, days) => {
+            op_handle_urlcheck(irc_sender.clone(), db, url, channel, tz, days).await?
         }
         IrcOp::UrlFetch(url, channel, output_filter) => {
             op_handle_urlfetch(irc_sender.clone(), url, channel, output_filter).await?
         }
+        IrcOp::UrlLog(db, url, channel, nick, ts) => {
+            op_handle_urllog(db, url, channel, nick, ts).await?
+        }
+        IrcOp::UrlTitle(url, channel) => op_handle_urltitle(irc_sender.clone(), url, channel)?,
     }
+    Ok(())
+}
+
+async fn op_handle_urlcheck(
+    irc_sender: Arc<Sender>,
+    db: String,
+    url: String,
+    channel: String,
+    tz: Tz,
+    exp_days: i64,
+) -> anyhow::Result<()> {
+    let mut dbc = start_db(&db).await?;
+    if let Some(old) = db_check_url(&mut dbc, &url, &channel, exp_days * 86400).await? {
+        let ts_min = tz.from_utc_datetime(
+            &NaiveDateTime::from_timestamp_opt(old.min, 0).ok_or(anyhow!("timestamp error"))?,
+        );
+
+        let msg = match old.cnt.cmp(&1) {
+            Ordering::Equal => {
+                format!("Wanha URL, nähty {ts_min}")
+            }
+            Ordering::Greater => {
+                let ts_max = tz.from_utc_datetime(
+                    &NaiveDateTime::from_timestamp_opt(old.max, 0)
+                        .ok_or(anyhow!("timestamp error"))?,
+                );
+
+                format!(
+                    "Wanha URL, nähty {} kertaa, ensin {ts_min} ja viimeksi {ts_max}",
+                    old.cnt
+                )
+            }
+            _ => "".to_string(),
+        };
+        if !msg.is_empty() {
+            irc_sender.send_privmsg(channel, &msg)?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn op_handle_urlfetch(
+    irc_sender: Arc<Sender>,
+    url: String,
+    channel: String,
+    output_filter: Regex,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(time::Duration::new(5, 0))
+        .timeout(time::Duration::new(10, 0))
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .min_tls_version(reqwest::tls::Version::TLS_1_0)
+        .user_agent(format!(
+            "{} v{}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()?;
+
+    let resp = client.get(&url).send().await?;
+    let body = resp.text().await?;
+    debug!("Got body:\n{body}");
+    for res_cap in output_filter.captures_iter(&body) {
+        let res_str = &res_cap[1];
+        let say = format!("--> {res_str}");
+        irc_sender.send_privmsg(&channel, say)?;
+    }
+
+    Ok(())
+}
+
+async fn op_handle_urllog(
+    db: String,
+    url: String,
+    chan: String,
+    nick: String,
+    ts: i64,
+) -> anyhow::Result<()> {
+    let mut dbc = start_db(&db).await?;
+    info!(
+        "Urllog: inserted {} row(s)",
+        db_add_url(
+            &mut dbc,
+            &UrlCtx {
+                ts,
+                chan,
+                nick,
+                url,
+            },
+        )
+        .await?
+    );
     Ok(())
 }
 
@@ -680,61 +760,6 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
             irc_sender.send_privmsg(channel, say)?;
         }
     }
-    Ok(())
-}
-
-async fn op_handle_urllog(
-    db: String,
-    url: String,
-    chan: String,
-    nick: String,
-    ts: i64,
-) -> anyhow::Result<()> {
-    let mut dbc = start_db(&db).await?;
-    info!(
-        "Urllog: inserted {} row(s)",
-        db_add_url(
-            &mut dbc,
-            &UrlCtx {
-                ts,
-                chan,
-                nick,
-                url,
-            },
-        )
-        .await?
-    );
-    Ok(())
-}
-
-async fn op_handle_urlfetch(
-    irc_sender: Arc<Sender>,
-    url: String,
-    channel: String,
-    output_filter: Regex,
-) -> anyhow::Result<()> {
-    let client = reqwest::Client::builder()
-        .connect_timeout(time::Duration::new(5, 0))
-        .timeout(time::Duration::new(10, 0))
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .min_tls_version(reqwest::tls::Version::TLS_1_0)
-        .user_agent(format!(
-            "{} v{}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        ))
-        .build()?;
-
-    let resp = client.get(&url).send().await?;
-    let body = resp.text().await?;
-    debug!("Got body:\n{body}");
-    for res_cap in output_filter.captures_iter(&body) {
-        let res_str = &res_cap[1];
-        let say = format!("--> {res_str}");
-        irc_sender.send_privmsg(&channel, say)?;
-    }
-
     Ok(())
 }
 

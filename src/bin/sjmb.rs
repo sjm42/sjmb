@@ -13,11 +13,6 @@ async fn main() -> anyhow::Result<()> {
     opts.finish()?;
     opts.start_pgm(env!("CARGO_BIN_NAME"));
 
-    never_gonna_give_you_up(opts).await?;
-    Ok(())
-}
-
-async fn never_gonna_give_you_up(opts: OptsCommon) -> anyhow::Result<()> {
     let mut first_time = true;
     loop {
         if first_time {
@@ -44,18 +39,19 @@ fn bot_cmd_setup(bot: &mut IrcBot) {
     // Register JOIN callback
     bot.register_irc_cmd(handle_join);
 
-    // Register commands
-    bot.register_privmsg_priv("reload", handle_pcmd_reload);
-    bot.register_privmsg_priv("dumpacl", handle_pcmd_dumpacl);
-    bot.register_privmsg_priv("say", handle_pcmd_say);
-    bot.register_privmsg_priv("nick", handle_pcmd_nick);
-    bot.register_privmsg_priv("join", handle_pcmd_join);
+    // ### Register commands
 
-    // These commands are unholy because the config is massaged inside general bot config.
-    // Anyway, the public commands are configurable.
+    // these can be used by anyone
     bot.register_privmsg_open(bot.bot_cfg.cmd_invite.to_string(), handle_pcmd_invite);
     bot.register_privmsg_open(bot.bot_cfg.cmd_mode_o.to_string(), handle_pcmd_mode_o);
     bot.register_privmsg_open(bot.bot_cfg.cmd_mode_v.to_string(), handle_pcmd_mode_v);
+
+    // these are restricted
+    bot.register_privmsg_priv(bot.bot_cfg.cmd_dumpacl.to_string(), handle_pcmd_dumpacl);
+    bot.register_privmsg_priv(bot.bot_cfg.cmd_join.to_string(), handle_pcmd_join);
+    bot.register_privmsg_priv(bot.bot_cfg.cmd_nick.to_string(), handle_pcmd_nick);
+    bot.register_privmsg_priv(bot.bot_cfg.cmd_reload.to_string(), handle_pcmd_reload);
+    bot.register_privmsg_priv(bot.bot_cfg.cmd_say.to_string(), handle_pcmd_say);
 }
 
 // Process channel join messages here and return true only if something was reacted upon

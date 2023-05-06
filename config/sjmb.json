@@ -36,9 +36,14 @@
     "url_dup_timezone": {
         "*": "UTC"
     },
-    "cmd_invite": "inviteme",
-    "cmd_mode_v": "asdf",
-    "cmd_mode_o": "zxcväölk",
+    "cmd_dumpacl": "dumpacl",
+    "cmd_invite": "invite",
+    "cmd_join": "join",
+    "cmd_mode_o": "mode_o",
+    "cmd_mode_v": "mode_v",
+    "cmd_nick": "nick",
+    "cmd_reload": "reload",
+    "cmd_say": "say",
     "mode_o_acl": [
         "^user@example\\.com$"
     ],
