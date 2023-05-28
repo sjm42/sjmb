@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -37,7 +37,7 @@ structopt = "0.3"
 tera = "1.18"
 tokio = { version = "1.28", features = ["full"] }
 url = "2.3"
-webpage = "1.5"
+webpage = "1.6"
 
 
 [build-dependencies]
