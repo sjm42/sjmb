@@ -20,7 +20,7 @@ use webpage::{Webpage, WebpageOptions}; // provides `try_next`
 use crate::*;
 
 const INITIAL_SIZE: usize = 32;
-const IRC_OP_THROTTLE: u64 = 1; // in seconds
+const IRC_OP_THROTTLE: u64 = 2; // in seconds
 const IRC_MSG_THROTTLE: u64 = 2; // in seconds
 
 pub type IrcCmdHandler = fn(&IrcBot, &irc::proto::Command) -> anyhow::Result<bool>;
