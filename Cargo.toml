@@ -37,7 +37,8 @@ tera = "1.19"
 tokio = { version = "1.32", features = ["full"] }
 url = "2.4"
 webpage = "1.6"
-
+openssl = { version = "*", features = ["vendored"] }
+libz-sys = { version = "*" }
 
 [build-dependencies]
 build-data = "0.1"
