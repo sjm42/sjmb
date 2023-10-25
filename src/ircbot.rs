@@ -726,11 +726,9 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
     // Now we should have a canonical url, IDN handled etc.
     let url_c = String::from(url_p);
     info!("Fetching URL {url_c}");
-    let webpage_opts = WebpageOptions {
-        allow_insecure: true,
-        timeout: time::Duration::new(5, 0),
-        ..Default::default()
-    };
+    let mut webpage_opts = WebpageOptions::default();
+    webpage_opts.allow_insecure = true;
+    webpage_opts.timeout = time::Duration::new(5, 0);
     let pageinfo = Webpage::from_url(&url_c, webpage_opts)?;
     if let Some(title) = pageinfo.html.title {
         // ignore titles that are just the url repeated
