@@ -1,0 +1,5 @@
+#!/bin/bash
+set -x
+set -e
+exec cross build --profile minsize --no-default-features --target mipsel-unknown-linux-musl
+# EOF

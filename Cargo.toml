@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.1.0"
+version = "1.1.2"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -13,25 +13,35 @@ edition = "2021"
 resolver = "2"
 
 
+[features]
+default = ["sqlite", "irc_tls"]
+sqlite = ["sqlx"]
+irc_tls = ["irc/tls-rust"]
+
+
 [dependencies]
 irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = [
     "toml_config",
-    # "tls-rust",
 ] }
 anyhow = "1.0"
 chrono = "0.4"
 chrono-tz = "0.8"
 env_logger = "0.10"
 futures = "0.3"
+hyper = { version = "0.14", features = ["http1", "client"] }
+hyper-rustls = { version = "0.24", default-features = false, features = [
+    "native-tokio",
+    "http1",
+    "tls12",
+    "logging",
+] }
 log = "0.4"
 regex = "1.10"
-reqwest = { version = "0.11", default-features = false, features = [
-    "rustls-tls",
-] }
+rustls = { version = "0.21", features = ["dangerous_configuration"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 shellexpand = { version = "3.1", features = ["full"] }
-sqlx = { version = "0.7", features = [
+sqlx = { optional = true, version = "0.7", features = [
     "macros",
     "migrate",
     "runtime-tokio-rustls",
@@ -42,8 +52,7 @@ tera = "1.19"
 tokio = { version = "1.33", features = ["full"] }
 url = "2.4"
 webpage = { version = "2.0", default-features = false }
-# openssl = { version = "0.10", features = ["vendored"] }
-libz-sys = { version = "1.1" }
+
 
 [build-dependencies]
 build-data = "0.1"
@@ -51,8 +60,14 @@ build-data = "0.1"
 
 [profile.release]
 lto = true
-opt-level = "s" # static
-# opt-level = 3 # default
-# opt-level = 'z'  # Optimize for size.
+opt-level = 3
+
+
+[profile.minsize]
+inherits = "release"
+codegen-units = 1
+strip = true
+opt-level = "z"
+panic = "abort"
 
 # EOF

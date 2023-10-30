@@ -8,13 +8,14 @@ use irc::client::prelude::*;
 use log::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{
-    cmp::Ordering, collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc, time,
-};
+use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc};
 use tera::Tera;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::{sleep, Duration};
 use url::Url;
+
+#[cfg(feature = "sqlite")]
+use std::cmp::Ordering;
 
 use crate::*;
 
@@ -590,6 +591,7 @@ async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcOp>
     }
 }
 
+#[allow(unused_variables)]
 async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
     match op {
         IrcOp::Invite(nick, channel) => irc_sender.send_invite(nick, channel)?,
@@ -601,13 +603,17 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
             irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Voice, Some(nick))])?
         }
         IrcOp::Nick(newnick) => irc_sender.send(Command::NICK(newnick))?,
-        IrcOp::UrlCheck(db, url, channel, tz, days) => {
+        IrcOp::UrlCheck(db, url, channel, tz, days) =>
+        {
+            #[cfg(feature = "sqlite")]
             op_handle_urlcheck(irc_sender.clone(), db, url, channel, tz, days).await?
         }
         IrcOp::UrlFetch(url, channel, output_filter) => {
             op_handle_urlfetch(irc_sender.clone(), url, channel, output_filter).await?
         }
-        IrcOp::UrlLog(db, url, channel, nick, ts) => {
+        IrcOp::UrlLog(db, url, channel, nick, ts) =>
+        {
+            #[cfg(feature = "sqlite")]
             op_handle_urllog(db, url, channel, nick, ts).await?
         }
         IrcOp::UrlTitle(url, channel) => {
@@ -617,6 +623,7 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 async fn op_handle_urlcheck(
     irc_sender: Arc<Sender>,
     db: String,
@@ -672,6 +679,7 @@ async fn op_handle_urlfetch(
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 async fn op_handle_urllog(
     db: String,
     url: String,
@@ -747,34 +755,69 @@ async fn get_url_body<S>(url: S) -> anyhow::Result<String>
 where
     S: AsRef<str>,
 {
-    // Now we should have a canonical url, IDN handled etc.
-    let url_c = String::from(Url::parse(url.as_ref())?);
-    info!("Fetching URL {url_c}");
+    mod danger {
+        use rustls::client::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+        use rustls::{Certificate, DigitallySignedStruct, Error, ServerName};
+        use std::time::SystemTime;
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(time::Duration::new(5, 0))
-        .timeout(time::Duration::new(10, 0))
-        .danger_accept_invalid_certs(true)
-        // .danger_accept_invalid_hostnames(true)
-        .min_tls_version(reqwest::tls::Version::TLS_1_0)
-        .user_agent(format!(
-            "{} v{}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        ))
-        .build()?;
+        pub struct NoCertificateVerification {}
+        impl ServerCertVerifier for NoCertificateVerification {
+            fn verify_server_cert(
+                &self,
+                _end_entity: &Certificate,
+                _intermediates: &[Certificate],
+                _server_name: &ServerName,
+                _scts: &mut dyn Iterator<Item = &[u8]>,
+                _oscp_response: &[u8],
+                _now: SystemTime,
+            ) -> Result<ServerCertVerified, Error> {
+                Ok(ServerCertVerified::assertion())
+            }
 
-    let resp = client.get(&url_c).send().await?;
-    if let reqwest::StatusCode::OK = resp.status() {
-        let body = resp.text().await?;
-        debug!("Got body:\n{body}");
+            fn verify_tls12_signature(
+                &self,
+                _message: &[u8],
+                _cert: &Certificate,
+                _dss: &DigitallySignedStruct,
+            ) -> Result<HandshakeSignatureValid, Error> {
+                Ok(HandshakeSignatureValid::assertion())
+            }
 
-        Ok(body)
-    } else {
-        Err(anyhow!(
-            "URL fetch failed: url \"{url_c}\" status: {:?}",
-            resp.status()
-        ))
+            fn verify_tls13_signature(
+                &self,
+                _message: &[u8],
+                _cert: &Certificate,
+                _dss: &DigitallySignedStruct,
+            ) -> Result<HandshakeSignatureValid, Error> {
+                Ok(HandshakeSignatureValid::assertion())
+            }
+        }
     }
+
+    // We want a normalized and valid url, IDN handled etc.
+    let url_c = String::from(Url::parse(url.as_ref())?);
+    info!("Fetching URL: {url_c:#?}");
+
+    let mut tls_config = rustls::ClientConfig::builder()
+        .with_safe_default_cipher_suites()
+        .with_safe_default_kx_groups()
+        .with_safe_default_protocol_versions()?
+        .with_custom_certificate_verifier(Arc::new(danger::NoCertificateVerification {}))
+        .with_no_client_auth();
+    tls_config.key_log = Arc::new(rustls::KeyLogFile::new());
+
+    let https = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(tls_config)
+        .https_or_http()
+        .enable_http1()
+        .build();
+
+    let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+    let resp = client.get(url_c.parse()?).await?;
+    debug!("Got response:\n{resp:#?}");
+    let body = String::from_utf8(hyper::body::to_bytes(resp.into_body()).await?.to_vec())?;
+    Ok(body)
+
+    // Ok("OK".into())
 }
 // EOF
