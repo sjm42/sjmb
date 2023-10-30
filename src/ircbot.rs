@@ -15,7 +15,6 @@ use tera::Tera;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::{sleep, Duration};
 use url::Url;
-use webpage::{Webpage, WebpageOptions}; // provides `try_next`
 
 use crate::*;
 
@@ -611,7 +610,9 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
         IrcOp::UrlLog(db, url, channel, nick, ts) => {
             op_handle_urllog(db, url, channel, nick, ts).await?
         }
-        IrcOp::UrlTitle(url, channel) => op_handle_urltitle(irc_sender.clone(), url, channel)?,
+        IrcOp::UrlTitle(url, channel) => {
+            op_handle_urltitle(irc_sender.clone(), url, channel).await?
+        }
     }
     Ok(())
 }
@@ -661,22 +662,7 @@ async fn op_handle_urlfetch(
     channel: String,
     output_filter: Regex,
 ) -> anyhow::Result<()> {
-    let client = reqwest::Client::builder()
-        .connect_timeout(time::Duration::new(5, 0))
-        .timeout(time::Duration::new(10, 0))
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .min_tls_version(reqwest::tls::Version::TLS_1_0)
-        .user_agent(format!(
-            "{} v{}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        ))
-        .build()?;
-
-    let resp = client.get(&url).send().await?;
-    let body = resp.text().await?;
-    debug!("Got body:\n{body}");
+    let body = get_url_body(&url).await?;
     for res_cap in output_filter.captures_iter(&body) {
         let res_str = &res_cap[1];
         let say = format!("--> {res_str}");
@@ -710,7 +696,11 @@ async fn op_handle_urllog(
     Ok(())
 }
 
-fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> anyhow::Result<()> {
+async fn op_handle_urltitle(
+    irc_sender: Arc<Sender>,
+    url: String,
+    channel: String,
+) -> anyhow::Result<()> {
     static mut WS_RE: Option<Regex> = None;
 
     // We are called sequentially via op_dispatch() and thus no race condition here.
@@ -721,18 +711,10 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
         }
     }
 
-    let url_p = Url::parse(&url)?;
-
-    // Now we should have a canonical url, IDN handled etc.
-    let url_c = String::from(url_p);
-    info!("Fetching URL {url_c}");
-    let mut webpage_opts = WebpageOptions::default();
-    webpage_opts.allow_insecure = true;
-    webpage_opts.timeout = time::Duration::new(5, 0);
-    let pageinfo = Webpage::from_url(&url_c, webpage_opts)?;
-    if let Some(title) = pageinfo.html.title {
+    let html = webpage::HTML::from_string(get_url_body(&url).await?, None)?;
+    if let Some(title) = html.title {
         // ignore titles that are just the url repeated
-        if title != url_c {
+        if title != url {
             // Replace all consecutive whitespace, including newlines etc with a single space
             let mut title_c = unsafe {
                 WS_RE
@@ -761,4 +743,38 @@ fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: String) -> 
     Ok(())
 }
 
+async fn get_url_body<S>(url: S) -> anyhow::Result<String>
+where
+    S: AsRef<str>,
+{
+    // Now we should have a canonical url, IDN handled etc.
+    let url_c = String::from(Url::parse(url.as_ref())?);
+    info!("Fetching URL {url_c}");
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(time::Duration::new(5, 0))
+        .timeout(time::Duration::new(10, 0))
+        .danger_accept_invalid_certs(true)
+        // .danger_accept_invalid_hostnames(true)
+        .min_tls_version(reqwest::tls::Version::TLS_1_0)
+        .user_agent(format!(
+            "{} v{}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()?;
+
+    let resp = client.get(&url_c).send().await?;
+    if let reqwest::StatusCode::OK = resp.status() {
+        let body = resp.text().await?;
+        debug!("Got body:\n{body}");
+
+        Ok(body)
+    } else {
+        Err(anyhow!(
+            "URL fetch failed: url \"{url_c}\" status: {:?}",
+            resp.status()
+        ))
+    }
+}
 // EOF

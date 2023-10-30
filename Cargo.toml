@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.0.8"
+version = "1.1.0"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -14,30 +14,35 @@ resolver = "2"
 
 
 [dependencies]
+irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = [
+    "toml_config",
+    # "tls-rust",
+] }
 anyhow = "1.0"
 chrono = "0.4"
 chrono-tz = "0.8"
 env_logger = "0.10"
 futures = "0.3"
-irc = "0.15"
 log = "0.4"
 regex = "1.10"
-reqwest = { version = "0.11", features = ["native-tls"] }
+reqwest = { version = "0.11", default-features = false, features = [
+    "rustls-tls",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 shellexpand = { version = "3.1", features = ["full"] }
 sqlx = { version = "0.7", features = [
     "macros",
     "migrate",
-    "runtime-tokio-native-tls",
+    "runtime-tokio-rustls",
     "sqlite",
 ] }
 structopt = "0.3"
 tera = "1.19"
 tokio = { version = "1.33", features = ["full"] }
 url = "2.4"
-webpage = "2.0"
-openssl = { version = "0.10", features = ["vendored"] }
+webpage = { version = "2.0", default-features = false }
+# openssl = { version = "0.10", features = ["vendored"] }
 libz-sys = { version = "1.1" }
 
 [build-dependencies]
