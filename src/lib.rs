@@ -18,6 +18,9 @@ pub use hash_util::*;
 pub mod str_util;
 pub use str_util::*;
 
+pub mod web_util;
+pub use web_util::*;
+
 #[cfg(feature = "sqlite")]
 pub mod db_util;
 #[cfg(feature = "sqlite")]

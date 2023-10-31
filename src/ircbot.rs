@@ -12,7 +12,6 @@ use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc
 use tera::Tera;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::{sleep, Duration};
-use url::Url;
 
 #[cfg(feature = "sqlite")]
 use std::cmp::Ordering;
@@ -704,34 +703,18 @@ async fn op_handle_urllog(
     Ok(())
 }
 
+
 async fn op_handle_urltitle(
     irc_sender: Arc<Sender>,
     url: String,
     channel: String,
 ) -> anyhow::Result<()> {
-    static mut WS_RE: Option<Regex> = None;
-
-    // We are called sequentially via op_dispatch() and thus no race condition here.
-    unsafe {
-        if WS_RE.is_none() {
-            // pre-compile whitespace regex once
-            WS_RE = Some(Regex::new(r"\s+")?);
-        }
-    }
-
     let html = webpage::HTML::from_string(get_url_body(&url).await?, None)?;
     if let Some(title) = html.title {
         // ignore titles that are just the url repeated
         if title != url {
             // Replace all consecutive whitespace, including newlines etc with a single space
-            let mut title_c = unsafe {
-                WS_RE
-                    .as_ref()
-                    .unwrap()
-                    .replace_all(&title, " ")
-                    .trim()
-                    .to_string()
-            };
+            let mut title_c = title.ws_collapse();
             if title_c.len() > 400 {
                 let mut i = 396;
                 loop {
@@ -751,73 +734,4 @@ async fn op_handle_urltitle(
     Ok(())
 }
 
-async fn get_url_body<S>(url: S) -> anyhow::Result<String>
-where
-    S: AsRef<str>,
-{
-    mod danger {
-        use rustls::client::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-        use rustls::{Certificate, DigitallySignedStruct, Error, ServerName};
-        use std::time::SystemTime;
-
-        pub struct NoCertificateVerification {}
-        impl ServerCertVerifier for NoCertificateVerification {
-            fn verify_server_cert(
-                &self,
-                _end_entity: &Certificate,
-                _intermediates: &[Certificate],
-                _server_name: &ServerName,
-                _scts: &mut dyn Iterator<Item = &[u8]>,
-                _oscp_response: &[u8],
-                _now: SystemTime,
-            ) -> Result<ServerCertVerified, Error> {
-                Ok(ServerCertVerified::assertion())
-            }
-
-            fn verify_tls12_signature(
-                &self,
-                _message: &[u8],
-                _cert: &Certificate,
-                _dss: &DigitallySignedStruct,
-            ) -> Result<HandshakeSignatureValid, Error> {
-                Ok(HandshakeSignatureValid::assertion())
-            }
-
-            fn verify_tls13_signature(
-                &self,
-                _message: &[u8],
-                _cert: &Certificate,
-                _dss: &DigitallySignedStruct,
-            ) -> Result<HandshakeSignatureValid, Error> {
-                Ok(HandshakeSignatureValid::assertion())
-            }
-        }
-    }
-
-    // We want a normalized and valid url, IDN handled etc.
-    let url_c = String::from(Url::parse(url.as_ref())?);
-    info!("Fetching URL: {url_c:#?}");
-
-    let mut tls_config = rustls::ClientConfig::builder()
-        .with_safe_default_cipher_suites()
-        .with_safe_default_kx_groups()
-        .with_safe_default_protocol_versions()?
-        .with_custom_certificate_verifier(Arc::new(danger::NoCertificateVerification {}))
-        .with_no_client_auth();
-    tls_config.key_log = Arc::new(rustls::KeyLogFile::new());
-
-    let https = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_tls_config(tls_config)
-        .https_or_http()
-        .enable_http1()
-        .build();
-
-    let client = hyper::Client::builder().build::<_, hyper::Body>(https);
-    let resp = client.get(url_c.parse()?).await?;
-    debug!("Got response:\n{resp:#?}");
-    let body = String::from_utf8(hyper::body::to_bytes(resp.into_body()).await?.to_vec())?;
-    Ok(body)
-
-    // Ok("OK".into())
-}
 // EOF
