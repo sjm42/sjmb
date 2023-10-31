@@ -4,7 +4,7 @@ use log::*;
 use std::sync::Arc;
 use url::Url;
 
-pub async fn get_url_body<S>(url: S) -> anyhow::Result<String>
+pub async fn get_url_body<S>(url: S) -> anyhow::Result<Option<String>>
 where
     S: AsRef<str>,
 {
@@ -70,8 +70,20 @@ where
     debug!("Got response:\n{resp:#?}");
     let status = resp.status();
     if let hyper::StatusCode::OK = status {
-        let body = String::from_utf8(hyper::body::to_bytes(resp.into_body()).await?.to_vec())?;
-        Ok(body)
+        if let Some(ct) = resp.headers().get("content-type") {
+            let ct_s = std::str::from_utf8(ct.as_bytes())?;
+            if ct_s == "text/html" {
+                let body =
+                    String::from_utf8(hyper::body::to_bytes(resp.into_body()).await?.to_vec())?;
+                Ok(Some(body))
+            } else {
+                debug!("Content-type ignored: {ct_s:?}");
+                Ok(None)
+            }
+        } else {
+            error!("No content-type!");
+            Ok(None)
+        }
     } else {
         Err(anyhow::anyhow!("HTTP status: {status:?}"))
     }

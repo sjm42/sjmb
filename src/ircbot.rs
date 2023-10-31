@@ -668,13 +668,13 @@ async fn op_handle_urlfetch(
     channel: String,
     output_filter: Regex,
 ) -> anyhow::Result<()> {
-    let body = get_url_body(&url).await?;
-    for res_cap in output_filter.captures_iter(&body) {
-        let res_str = &res_cap[1];
-        let say = format!("--> {res_str}");
-        irc_sender.send_privmsg(&channel, say)?;
+    if let Some(body) = get_url_body(&url).await? {
+        for res_cap in output_filter.captures_iter(&body) {
+            let res_str = &res_cap[1];
+            let say = format!("--> {res_str}");
+            irc_sender.send_privmsg(&channel, say)?;
+        }
     }
-
     Ok(())
 }
 
@@ -703,32 +703,33 @@ async fn op_handle_urllog(
     Ok(())
 }
 
-
 async fn op_handle_urltitle(
     irc_sender: Arc<Sender>,
     url: String,
     channel: String,
 ) -> anyhow::Result<()> {
-    let html = webpage::HTML::from_string(get_url_body(&url).await?, None)?;
-    if let Some(title) = html.title {
-        // ignore titles that are just the url repeated
-        if title != url {
-            // Replace all consecutive whitespace, including newlines etc with a single space
-            let mut title_c = title.ws_collapse();
-            if title_c.len() > 400 {
-                let mut i = 396;
-                loop {
-                    // find a UTF-8 code point boundary to safely split at
-                    if title_c.is_char_boundary(i) {
-                        break;
+    if let Some(body) = get_url_body(&url).await? {
+        let html = webpage::HTML::from_string(body, None)?;
+        if let Some(title) = html.title {
+            // ignore titles that are just the url repeated
+            if title != url {
+                // Replace all consecutive whitespace, including newlines etc with a single space
+                let mut title_c = title.ws_collapse();
+                if title_c.len() > 400 {
+                    let mut i = 396;
+                    loop {
+                        // find a UTF-8 code point boundary to safely split at
+                        if title_c.is_char_boundary(i) {
+                            break;
+                        }
+                        i += 1;
                     }
-                    i += 1;
+                    let (s1, _) = title_c.split_at(i);
+                    title_c = format!("{}...", s1);
                 }
-                let (s1, _) = title_c.split_at(i);
-                title_c = format!("{}...", s1);
+                let say = format!("\"{title_c}\"");
+                irc_sender.send_privmsg(channel, say)?;
             }
-            let say = format!("\"{title_c}\"");
-            irc_sender.send_privmsg(channel, say)?;
         }
     }
     Ok(())
