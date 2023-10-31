@@ -4,7 +4,7 @@ use log::*;
 use std::sync::Arc;
 use url::Url;
 
-pub async fn get_url_body<S>(url: S) -> anyhow::Result<Option<String>>
+pub async fn get_url_body<S>(url_s: S) -> anyhow::Result<Option<String>>
 where
     S: AsRef<str>,
 {
@@ -48,7 +48,8 @@ where
     }
 
     // We want a normalized and valid url, IDN handled etc.
-    let url_c = String::from(Url::parse(url.as_ref())?);
+    let url = Url::parse(url_s.as_ref())?;
+    let url_c = String::from(url.clone());
     info!("Fetching URL: {url_c:#?}");
 
     let mut tls_config = rustls::ClientConfig::builder()
@@ -66,13 +67,27 @@ where
         .build();
 
     let client = hyper::Client::builder().build::<_, hyper::Body>(https);
-    let resp = client.get(url_c.parse()?).await?;
+    let req = hyper::Request::builder()
+        .uri(url_c)
+        .header(hyper::header::HOST, url.host_str().unwrap_or("none"))
+        .header(
+            hyper::header::USER_AGENT,
+            format!(
+                "Rust/hyper/{} v{}",
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION")
+            ),
+        )
+        .header(hyper::header::CONNECTION, "close")
+        .body(hyper::Body::empty())?;
+
+    let resp = client.request(req).await?;
     debug!("Got response:\n{resp:#?}");
     let status = resp.status();
     if let hyper::StatusCode::OK = status {
         if let Some(ct) = resp.headers().get("content-type") {
             let ct_s = std::str::from_utf8(ct.as_bytes())?;
-            if ct_s == "text/html" {
+            if ct_s.starts_with("text/html") {
                 let body =
                     String::from_utf8(hyper::body::to_bytes(resp.into_body()).await?.to_vec())?;
                 Ok(Some(body))
