@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.1.6"
+version = "1.1.7"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -49,7 +49,7 @@ sqlx = { optional = true, version = "0.7", features = [
 ] }
 structopt = "0.3"
 tera = "1.19"
-tokio = { version = "1.33", features = ["full"] }
+tokio = { version = "1.34", features = ["full"] }
 url = "2.4"
 webpage = { version = "2.0", default-features = false }
 
