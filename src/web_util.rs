@@ -73,6 +73,7 @@ where
     // We want a normalized and valid url, IDN handled etc.
     let mut url = Url::parse(url_s.as_ref())?;
     let mut redir_count = 0;
+    let mut status;
     let resp = loop {
         let url_c = url.to_string();
         info!("Fetching URL: {url_c:#?}");
@@ -94,9 +95,9 @@ where
         let resp =
             tokio::time::timeout(Duration::from_secs(HTTP_TIMEOUT), client.request(req)).await??;
         debug!("Got response:\n{resp:#?}");
-
+        status = resp.status();
         // handle HTTP redirects gracefully, start over with new url
-        match resp.status() {
+        match status {
             StatusCode::MOVED_PERMANENTLY
             | StatusCode::FOUND
             | StatusCode::SEE_OTHER
@@ -119,14 +120,18 @@ where
             }
         }
     };
-    let status = resp.status();
 
     if let hyper::StatusCode::OK = status {
         if let Some(ct) = resp.headers().get("content-type") {
-            let ct_s = std::str::from_utf8(ct.as_bytes())?;
+            let ct_s = String::from_utf8_lossy(ct.as_bytes());
             if ct_s.starts_with("text/html") {
-                let body =
-                    String::from_utf8(hyper::body::to_bytes(resp.into_body()).await?.to_vec())?;
+                let body = String::from_utf8_lossy(
+                    hyper::body::to_bytes(resp.into_body())
+                        .await?
+                        .to_vec()
+                        .as_ref(),
+                )
+                .to_string();
                 Ok(Some(body))
             } else {
                 debug!("Content-type ignored: {ct_s:?}");
