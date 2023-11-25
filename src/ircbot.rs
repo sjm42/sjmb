@@ -668,7 +668,7 @@ async fn op_handle_urlfetch(
     channel: String,
     output_filter: Regex,
 ) -> anyhow::Result<()> {
-    if let Some(body) = get_http_body(&url).await? {
+    if let Some((body, _ct)) = get_text_body(&url).await? {
         for res_cap in output_filter.captures_iter(&body) {
             let res_str = &res_cap[1];
             let say = format!("--> {res_str}");
@@ -708,7 +708,7 @@ async fn op_handle_urltitle(
     url: String,
     channel: String,
 ) -> anyhow::Result<()> {
-    if let Some(body) = get_http_body(&url).await? {
+    if let Some((body, _ct)) = get_text_body(&url).await? {
         let html = webpage::HTML::from_string(body, None)?;
         if let Some(title) = html.title {
             // ignore titles that are just the url repeated
