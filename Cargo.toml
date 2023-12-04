@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.2.0"
+version = "1.2.1"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -20,16 +20,17 @@ irc_tls = ["irc/tls-rust"]
 
 
 [dependencies]
+clap = { version = "4.4", features = ["derive"] }
 irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = [
     "toml_config",
 ] }
-anyhow = "1.0"
-chrono = "0.4"
-chrono-tz = "0.8"
-env_logger = "0.10"
-futures = "0.3"
-log = "0.4"
-regex = "1.10"
+anyhow = "1"
+chrono = "0"
+chrono-tz = "0"
+env_logger = "0"
+futures = "0"
+log = "0"
+regex = "1"
 reqwest = { version = "0.11", features = [
     "brotli",
     "deflate",
@@ -38,20 +39,19 @@ reqwest = { version = "0.11", features = [
     "rustls-tls",
     "trust-dns",
 ], default-features = false }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-shellexpand = { version = "3.1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+shellexpand = { version = "3", features = ["full"] }
 sqlx = { optional = true, version = "0.7", features = [
     "macros",
     "migrate",
     "runtime-tokio-rustls",
     "sqlite",
 ] }
-structopt = "0.3"
 tera = "1.19"
 tokio = { version = "1", features = ["full"] }
-url = "2.5"
-webpage = { version = "2.0", default-features = false }
+url = "2"
+webpage = { version = "2", default-features = false }
 
 
 [build-dependencies]

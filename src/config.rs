@@ -1,21 +1,21 @@
 // config.rs
 
+use clap::Parser;
 use log::*;
 use std::env;
-use structopt::StructOpt;
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub struct OptsCommon {
-    #[structopt(short, long)]
+    #[arg(short, long)]
     pub verbose: bool,
-    #[structopt(short, long)]
+    #[arg(short, long)]
     pub debug: bool,
-    #[structopt(short, long)]
+    #[arg(short, long)]
     pub trace: bool,
 
-    #[structopt(short, long, default_value = "$HOME/sjmb/config/sjmb.json")]
+    #[arg(short, long, default_value = "$HOME/sjmb/config/sjmb.json")]
     pub bot_config: String,
-    #[structopt(short, long, default_value = "$HOME/sjmb/config/irc.toml")]
+    #[arg(short, long, default_value = "$HOME/sjmb/config/irc.toml")]
     pub irc_config: String,
 }
 

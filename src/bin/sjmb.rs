@@ -1,15 +1,16 @@
 // bin/sjmb.rs
 
+use sjmb::*;
+
 use chrono::*;
+use clap::Parser;
 use irc::client::prelude::*;
 use log::*;
-use sjmb::*;
-use structopt::StructOpt;
 use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut opts = OptsCommon::from_args();
+    let mut opts = OptsCommon::parse();
     opts.finish()?;
     opts.start_pgm(env!("CARGO_BIN_NAME"));
 
