@@ -633,29 +633,27 @@ async fn op_handle_urlcheck(
 ) -> anyhow::Result<()> {
     let mut dbc = start_db(&db).await?;
     if let Some(old) = db_check_url(&mut dbc, &url, &channel, exp_days * 86400).await? {
-        let ts_min = tz.from_utc_datetime(
-            &NaiveDateTime::from_timestamp_opt(old.min, 0).ok_or(anyhow!("timestamp error"))?,
-        );
+        let ts_first = DateTime::from_timestamp(old.first, 0)
+            .unwrap_or_default()
+            .with_timezone(&tz);
 
-        let msg = match old.cnt.cmp(&1) {
+        match old.cnt.cmp(&1) {
             Ordering::Equal => {
-                format!("Wanha URL, nähty {ts_min}")
+                irc_sender.send_privmsg(channel, format!("Wanha URL, nähty {ts_first}"))?;
             }
             Ordering::Greater => {
-                let ts_max = tz.from_utc_datetime(
-                    &NaiveDateTime::from_timestamp_opt(old.max, 0)
-                        .ok_or(anyhow!("timestamp error"))?,
-                );
-
-                format!(
-                    "Wanha URL, nähty {} kertaa, ensin {ts_min} ja viimeksi {ts_max}",
-                    old.cnt
-                )
+                let ts_last = DateTime::from_timestamp(old.last, 0)
+                    .unwrap_or_default()
+                    .with_timezone(&tz);
+                irc_sender.send_privmsg(
+                    channel,
+                    format!(
+                        "Wanha URL, nähty {} kertaa, ensin {ts_first} ja viimeksi {ts_last}",
+                        old.cnt
+                    ),
+                )?;
             }
-            _ => "".to_string(),
-        };
-        if !msg.is_empty() {
-            irc_sender.send_privmsg(channel, &msg)?;
+            _ => {}
         }
     }
 

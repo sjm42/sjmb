@@ -11,7 +11,7 @@ pub fn ts_fmt<S: AsRef<str>>(fmt: S, ts: i64) -> String {
     if ts == 0 {
         TS_NONE.to_string()
     } else {
-        NaiveDateTime::from_timestamp_opt(ts, 0).map_or_else(
+        DateTime::from_timestamp(ts, 0).map_or_else(
             || TS_NONE.to_string(),
             |ts| ts.format(fmt.as_ref()).to_string(),
         )

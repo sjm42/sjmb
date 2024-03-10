@@ -94,11 +94,11 @@ pub async fn db_add_url(db: &mut DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
 #[derive(Debug, sqlx::FromRow)]
 pub struct CheckUrl {
     pub cnt: i64,
-    pub min: i64,
-    pub max: i64,
+    pub first: i64,
+    pub last: i64,
 }
 
-const SQL_CHECK_URL: &str = "select count(id) as cnt, min(seen) as min, max(seen) as max \
+const SQL_CHECK_URL: &str = "select count(id) as cnt, min(seen) as first, max(seen) as last \
      from url \
      where url = ? and channel = ? and seen > ?";
 pub async fn db_check_url(
