@@ -5,7 +5,7 @@
         "sjm": true
     },
     "url_regex": "(https?://[\\w/',\":;!%@=\\-\\.\\~\\?\\#\\[\\]\\{\\}\\$\\&\\(\\)\\*\\+]+[^\\s'\"\\]\\}])",
-    "url_log_db": "$HOME/sjmb/data/urllog.db",
+    "url_log_db": "postgres:///url",
     "url_blacklist": [
         "http://znc.in",
         "https://znc.in",

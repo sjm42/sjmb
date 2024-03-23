@@ -8,13 +8,11 @@ use irc::client::prelude::*;
 use log::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc};
 use tera::Tera;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::{sleep, Duration};
-
-#[cfg(feature = "sqlite")]
-use std::cmp::Ordering;
 
 use crate::*;
 
@@ -602,17 +600,13 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
             irc_sender.send_mode(channel, &[Mode::Plus(ChannelMode::Voice, Some(nick))])?
         }
         IrcOp::Nick(newnick) => irc_sender.send(Command::NICK(newnick))?,
-        IrcOp::UrlCheck(db, url, channel, tz, days) =>
-        {
-            #[cfg(feature = "sqlite")]
+        IrcOp::UrlCheck(db, url, channel, tz, days) => {
             op_handle_urlcheck(irc_sender.clone(), db, url, channel, tz, days).await?
         }
         IrcOp::UrlFetch(url, channel, output_filter) => {
             op_handle_urlfetch(irc_sender.clone(), url, channel, output_filter).await?
         }
-        IrcOp::UrlLog(db, url, channel, nick, ts) =>
-        {
-            #[cfg(feature = "sqlite")]
+        IrcOp::UrlLog(db, url, channel, nick, ts) => {
             op_handle_urllog(db, url, channel, nick, ts).await?
         }
         IrcOp::UrlTitle(url, channel) => {
@@ -622,7 +616,6 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "sqlite")]
 async fn op_handle_urlcheck(
     irc_sender: Arc<Sender>,
     db: String,
@@ -631,29 +624,31 @@ async fn op_handle_urlcheck(
     tz: Tz,
     exp_days: i64,
 ) -> anyhow::Result<()> {
-    let mut dbc = start_db(&db).await?;
-    if let Some(old) = db_check_url(&mut dbc, &url, &channel, exp_days * 86400).await? {
-        let ts_first = DateTime::from_timestamp(old.first, 0)
-            .unwrap_or_default()
-            .with_timezone(&tz);
+    let dbc = start_db(&db).await?;
+    if let Some(old) = db_check_url(&dbc, &url, &channel, exp_days * 86400).await? {
+        if let (Some(first), Some(last)) = (old.first, old.last) {
+            let ts_first = DateTime::from_timestamp(first, 0)
+                .unwrap_or_default()
+                .with_timezone(&tz);
 
-        match old.cnt.cmp(&1) {
-            Ordering::Equal => {
-                irc_sender.send_privmsg(channel, format!("Wanha URL, nähty {ts_first}"))?;
+            match old.cnt.cmp(&1) {
+                Ordering::Equal => {
+                    irc_sender.send_privmsg(channel, format!("Wanha URL, nähty {ts_first}"))?;
+                }
+                Ordering::Greater => {
+                    let ts_last = DateTime::from_timestamp(last, 0)
+                        .unwrap_or_default()
+                        .with_timezone(&tz);
+                    irc_sender.send_privmsg(
+                        channel,
+                        format!(
+                            "Wanha URL, nähty {} kertaa, ensin {ts_first} ja viimeksi {ts_last}",
+                            old.cnt
+                        ),
+                    )?;
+                }
+                _ => {}
             }
-            Ordering::Greater => {
-                let ts_last = DateTime::from_timestamp(old.last, 0)
-                    .unwrap_or_default()
-                    .with_timezone(&tz);
-                irc_sender.send_privmsg(
-                    channel,
-                    format!(
-                        "Wanha URL, nähty {} kertaa, ensin {ts_first} ja viimeksi {ts_last}",
-                        old.cnt
-                    ),
-                )?;
-            }
-            _ => {}
         }
     }
 
@@ -676,7 +671,6 @@ async fn op_handle_urlfetch(
     Ok(())
 }
 
-#[cfg(feature = "sqlite")]
 async fn op_handle_urllog(
     db: String,
     url: String,
@@ -684,11 +678,11 @@ async fn op_handle_urllog(
     nick: String,
     ts: i64,
 ) -> anyhow::Result<()> {
-    let mut dbc = start_db(&db).await?;
+    let dbc = start_db(&db).await?;
     info!(
         "Urllog: inserted {} row(s)",
         db_add_url(
-            &mut dbc,
+            &dbc,
             &UrlCtx {
                 ts,
                 chan,
