@@ -1,13 +1,16 @@
 // re_acl.rs
 
-use log::*;
+
 use regex::Regex;
+
+use crate::*;
 
 #[derive(Debug, Clone)]
 pub struct ReMut {
     pub re_str: Vec<(String, String)>,
     pub re_vec: Vec<Regex>,
 }
+
 impl ReMut {
     pub fn new(list: &Vec<(String, String)>) -> anyhow::Result<Self> {
         info!("Got {} entries.", list.len());
@@ -23,8 +26,8 @@ impl ReMut {
         Ok(Self { re_str, re_vec })
     }
     pub fn re_mut<S>(&self, text: S) -> Option<(usize, String)>
-    where
-        S: AsRef<str>,
+        where
+            S: AsRef<str>,
     {
         for (i, re) in self.re_vec.iter().enumerate() {
             if re.is_match(text.as_ref()) {

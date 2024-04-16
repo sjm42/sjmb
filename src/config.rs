@@ -1,8 +1,10 @@
 // config.rs
 
-use clap::Parser;
-use log::*;
 use std::env;
+
+use clap::Parser;
+
+use crate::*;
 
 #[derive(Debug, Clone, Parser)]
 pub struct OptsCommon {
@@ -25,26 +27,27 @@ impl OptsCommon {
         self.irc_config = shellexpand::full(&self.irc_config)?.into_owned();
         Ok(())
     }
-    pub fn get_loglevel(&self) -> LevelFilter {
+
+    pub fn get_loglevel(&self) -> Level {
         if self.trace {
-            LevelFilter::Trace
+            Level::TRACE
         } else if self.debug {
-            LevelFilter::Debug
+            Level::DEBUG
         } else if self.verbose {
-            LevelFilter::Info
+            Level::INFO
         } else {
-            LevelFilter::Error
+            Level::ERROR
         }
     }
+
     pub fn start_pgm(&self, name: &str) {
-        env_logger::Builder::new()
-            .filter_module(env!("CARGO_PKG_NAME"), self.get_loglevel())
-            .filter_module(name, self.get_loglevel())
-            .format_timestamp_secs()
+        tracing_subscriber::fmt()
+            .with_max_level(self.get_loglevel())
+            .with_target(false)
             .init();
+
         info!(
-            "Starting up {} v{}...",
-            env!("CARGO_PKG_NAME"),
+            "Starting up {name} v{}...",
             env!("CARGO_PKG_VERSION")
         );
         debug!("Git branch: {}", env!("GIT_BRANCH"));

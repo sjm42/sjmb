@@ -1,13 +1,16 @@
 // re_acl.rs
 
-use log::*;
+
 use regex::Regex;
+
+use crate::*;
 
 #[derive(Debug, Clone)]
 pub struct ReAcl {
     pub acl_str: Vec<String>,
     pub acl_re: Vec<Regex>,
 }
+
 impl ReAcl {
     pub fn new(list: &Vec<String>) -> anyhow::Result<Self> {
         info!("Got {} entries.", list.len());
@@ -23,8 +26,8 @@ impl ReAcl {
         Ok(Self { acl_str, acl_re })
     }
     pub fn re_match<S>(&self, text: S) -> Option<(usize, &str)>
-    where
-        S: AsRef<str>,
+        where
+            S: AsRef<str>,
     {
         for (i, re) in self.acl_re.iter().enumerate() {
             if re.is_match(text.as_ref()) {

@@ -1,12 +1,11 @@
 // bin/sjmb.rs
 
-use sjmb::*;
-
 use chrono::*;
 use clap::Parser;
 use irc::client::prelude::*;
-use log::*;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
+
+use sjmb::*;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

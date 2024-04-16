@@ -23,6 +23,7 @@ pub trait TimeStampFormats {
     fn ts_short(self) -> String;
     fn ts_short_y(self) -> String;
 }
+
 impl TimeStampFormats for i64 {
     fn ts_long(self) -> String {
         ts_fmt(TS_FMT_LONG, self)
@@ -40,9 +41,10 @@ impl TimeStampFormats for i64 {
 pub trait CollapseWhiteSpace {
     fn ws_collapse(self) -> String;
 }
+
 impl<S> CollapseWhiteSpace for S
-where
-    S: AsRef<str>,
+    where
+        S: AsRef<str>,
 {
     fn ws_collapse(self) -> String {
         self.as_ref()
