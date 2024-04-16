@@ -22,7 +22,7 @@ pub struct OptsCommon {
 }
 
 impl OptsCommon {
-    pub fn finish(&mut self) -> anyhow::Result<()> {
+    pub fn finalize(&mut self) -> anyhow::Result<()> {
         self.bot_config = shellexpand::full(&self.bot_config)?.into_owned();
         self.irc_config = shellexpand::full(&self.irc_config)?.into_owned();
         Ok(())
