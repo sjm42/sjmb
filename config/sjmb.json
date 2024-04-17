@@ -1,77 +1,78 @@
 {
-    "irc_log_dir": "$HOME/sjmb/logs",
-    "channel": "#chana",
-    "privileged_nicks": {
-        "sjm": true
+  "irc_log_dir": "$HOME/sjmb/logs",
+  "channel": "#chana",
+  "privileged_nicks": {
+    "sjm": true
+  },
+  "url_regex": "(https?://[\\w/',\":;!%@=\\-\\.\\~\\?\\#\\[\\]\\{\\}\\$\\&\\(\\)\\*\\+]+[^\\s'\"\\]\\}])",
+  "url_log_db": "postgres:///url",
+  "url_blacklist": [
+    "http://znc.in",
+    "https://znc.in",
+    "https://freakshells.info"
+  ],
+  "url_fetch_channels": {
+    "*": false,
+    "#chana": true
+  },
+  "url_cmd_channels": {
+    "*": false,
+    "#chana": true
+  },
+  "url_mut_channels": {
+    "*": false,
+    "#chana": true
+  },
+  "url_log_channels": {
+    "*": false,
+    "#chana": true
+  },
+  "url_dup_complain_channels": {
+    "*": true
+  },
+  "url_dup_expire_days": {
+    "*": 30
+  },
+  "url_dup_timezone": {
+    "*": "UTC"
+  },
+  "cmd_dumpacl": "dumpacl",
+  "cmd_invite": "invite",
+  "cmd_join": "join",
+  "cmd_mode_o": "mode_o",
+  "cmd_mode_v": "mode_v",
+  "cmd_nick": "nick",
+  "cmd_reload": "reload",
+  "cmd_say": "say",
+  "mode_o_acl": [
+    "^user@example\\.com$"
+  ],
+  "auto_o_acl": [
+    "^user@example\\.com$"
+  ],
+  "invite_blacklist": [],
+  "url_cmd_list": {
+    "metar_old": {
+      "url_tmpl": "https://tgftp.nws.noaa.gov/data/observations/metar/stations/{{args[0] | slugify | upper}}.TXT",
+      "output_filter": "(?m)^(\\w+\\s+\\w.*)$"
     },
-    "url_regex": "(https?://[\\w/',\":;!%@=\\-\\.\\~\\?\\#\\[\\]\\{\\}\\$\\&\\(\\)\\*\\+]+[^\\s'\"\\]\\}])",
-    "url_log_db": "postgres:///url",
-    "url_blacklist": [
-        "http://znc.in",
-        "https://znc.in",
-        "https://freakshells.info"
-    ],
-    "url_fetch_channels": {
-        "*": false,
-        "#chana": true
+    "taf_old": {
+      "url_tmpl": "https://aviationweather.gov/adds/dataserver_current/httpparam?dataSource=tafs&requestType=retrieve&format=csv&hoursBeforeNow=3&timeType=issue&mostRecent=true&stationString={{args[0] | slugify | upper}}",
+      "output_filter": "(?m)^(TAF\\s+[^,]+)"
     },
-    "url_cmd_channels": {
-        "*": false,
-        "#chana": true
+    "metar": {
+      "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{args[0] | slugify | upper}}",
+      "output_filter": "(?im)<b>metar:</b>\\s*(.*)$"
     },
-    "url_mut_channels": {
-        "*": false,
-        "#chana": true
-    },
-    "url_log_channels": {
-        "*": false,
-        "#chana": true
-    },
-    "url_dup_complain_channels": {
-        "*": true
-    },
-    "url_dup_expire_days": {
-        "*": 30
-    },
-    "url_dup_timezone": {
-        "*": "UTC"
-    },
-    "cmd_dumpacl": "dumpacl",
-    "cmd_invite": "invite",
-    "cmd_join": "join",
-    "cmd_mode_o": "mode_o",
-    "cmd_mode_v": "mode_v",
-    "cmd_nick": "nick",
-    "cmd_reload": "reload",
-    "cmd_say": "say",
-    "mode_o_acl": [
-        "^user@example\\.com$"
-    ],
-    "auto_o_acl": [
-        "^user@example\\.com$"
-    ],
-    "url_cmd_list": {
-        "metar_old": {
-            "url_tmpl": "https://tgftp.nws.noaa.gov/data/observations/metar/stations/{{args[0] | slugify | upper}}.TXT",
-            "output_filter": "(?m)^(\\w+\\s+\\w.*)$"
-        },
-        "taf_old": {
-            "url_tmpl": "https://aviationweather.gov/adds/dataserver_current/httpparam?dataSource=tafs&requestType=retrieve&format=csv&hoursBeforeNow=3&timeType=issue&mostRecent=true&stationString={{args[0] | slugify | upper}}",
-            "output_filter": "(?m)^(TAF\\s+[^,]+)"
-        },
-        "metar": {
-            "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{args[0] | slugify | upper}}",
-            "output_filter": "(?im)<b>metar:</b>\\s*(.*)$"
-        },
-        "taf": {
-            "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{args[0] | slugify | upper}}",
-            "output_filter": "(?im)<b>taf:</b>\\s*(.*)$"
-        }
-    },
-    "url_mut_list": [
-        [
-            "^\\w+://[\\w\\.]*twitter.com/([^\\?]+).*$",
-            "https://nitter.net/$1"
-        ]
+    "taf": {
+      "url_tmpl": "https://fi.allmetsat.com/metar-taf/norja-ruotsi-suomi.php?icao={{args[0] | slugify | upper}}",
+      "output_filter": "(?im)<b>taf:</b>\\s*(.*)$"
+    }
+  },
+  "url_mut_list": [
+    [
+      "^\\w+://[\\w\\.]*twitter.com/([^\\?]+).*$",
+      "https://nitter.net/$1"
     ]
+  ]
 }

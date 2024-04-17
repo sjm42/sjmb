@@ -174,9 +174,22 @@ fn handle_pcmd_join(bot: &mut IrcBot, _: &str, _: &str, newchan: &str) -> anyhow
 
 fn handle_pcmd_invite(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
     let nick = bot.msg_nick();
-    let channel = bot.bot_cfg.channel.to_string();
-    info!("Inviting {nick} to {channel}");
-    bot.new_op(IrcOp::Invite(nick.into(), channel))?;
+    let userhost = bot.msg_userhost();
+    let acl_resp = bot.bot_cfg.invite_blacklist_rt.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no invite_blacklist_rt"))?
+        .re_match(userhost);
+
+    match acl_resp {
+        Some((i, s)) => {
+            info!("ACL match {userhost} at index {i}: {s}");
+            info!("Nick {nick} ({userhost}) is blacklisted. No invite today.");
+        }
+        None => {
+            let channel = bot.bot_cfg.channel.to_string();
+            info!("Inviting {nick} to {channel}");
+            bot.new_op(IrcOp::Invite(nick.into(), channel))?;
+        }
+    }
     Ok(true)
 }
 
@@ -186,10 +199,7 @@ fn handle_pcmd_mode_o(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
     let channel = &bot.bot_cfg.channel;
 
     let now1 = Utc::now();
-    let acl_resp = bot
-        .bot_cfg
-        .mode_o_acl_rt
-        .as_ref()
+    let acl_resp = bot.bot_cfg.mode_o_acl_rt.as_ref()
         .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
         .re_match(userhost);
     debug!(

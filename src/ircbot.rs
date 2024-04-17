@@ -51,25 +51,28 @@ pub struct BotConfig {
     pub url_dup_expire_days: HashMap<String, i64>,
     pub url_dup_timezone: HashMap<String, String>,
 
-    pub cmd_dumpacl: String,
     // dump my ACL as privmsgs
-    pub cmd_invite: String,
+    pub cmd_dumpacl: String,
     // get /invite
-    pub cmd_join: String,
+    pub cmd_invite: String,
     // make bot join a channel
-    pub cmd_mode_o: String,
+    pub cmd_join: String,
     // get +o
-    pub cmd_mode_v: String,
+    pub cmd_mode_o: String,
     // get +v
-    pub cmd_nick: String,
+    pub cmd_mode_v: String,
     // set nick of the bot
-    pub cmd_reload: String,
+    pub cmd_nick: String,
     // reload config
-    pub cmd_say: String,     // say something to a channel
-
-    pub mode_o_acl: Vec<String>,
+    pub cmd_reload: String,
+    // say something to a channel
+    pub cmd_say: String,
     // Regex list for +o ACL
-    pub auto_o_acl: Vec<String>, // Regex list for auto-op ACL
+    pub mode_o_acl: Vec<String>,
+    // Regex list for auto-op ACL
+    pub auto_o_acl: Vec<String>,
+    // Regex list for blacklisted users
+    pub invite_blacklist: Vec<String>,
 
     pub url_cmd_list: HashMap<String, UrlCmd>,
     pub url_mut_list: Vec<(String, String)>,
@@ -78,6 +81,8 @@ pub struct BotConfig {
     pub mode_o_acl_rt: Option<ReAcl>,
     #[serde(skip)]
     pub auto_o_acl_rt: Option<ReAcl>,
+    #[serde(skip)]
+    pub invite_blacklist_rt: Option<ReAcl>,
 
     #[serde(skip)]
     pub url_re: Option<Regex>,
@@ -104,6 +109,7 @@ impl BotConfig {
         // read & parse ACLs ()
         config.mode_o_acl_rt = Some(ReAcl::new(&config.mode_o_acl)?);
         config.auto_o_acl_rt = Some(ReAcl::new(&config.auto_o_acl)?);
+        config.invite_blacklist_rt = Some(ReAcl::new(&config.invite_blacklist)?);
 
         // pre-compile url detection regex
         config.url_re = Some(Regex::new(&config.url_regex)?);
@@ -736,5 +742,4 @@ async fn op_handle_urltitle(
     }
     Ok(())
 }
-
 // EOF
