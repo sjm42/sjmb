@@ -50,7 +50,8 @@
   "auto_o_acl": [
     "^user@example\\.com$"
   ],
-  "invite_blacklist": [],
+  "invite_bl_userhost": [],
+  "invite_bl_nick": [],
   "url_cmd_list": {
     "metar_old": {
       "url_tmpl": "https://tgftp.nws.noaa.gov/data/observations/metar/stations/{{args[0] | slugify | upper}}.TXT",

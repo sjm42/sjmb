@@ -71,8 +71,9 @@ pub struct BotConfig {
     pub mode_o_acl: Vec<String>,
     // Regex list for auto-op ACL
     pub auto_o_acl: Vec<String>,
-    // Regex list for blacklisted users
-    pub invite_blacklist: Vec<String>,
+    // Regex lists for blacklisted users
+    pub invite_bl_userhost: Vec<String>,
+    pub invite_bl_nick: Vec<String>,
 
     pub url_cmd_list: HashMap<String, UrlCmd>,
     pub url_mut_list: Vec<(String, String)>,
@@ -82,7 +83,9 @@ pub struct BotConfig {
     #[serde(skip)]
     pub auto_o_acl_rt: Option<ReAcl>,
     #[serde(skip)]
-    pub invite_blacklist_rt: Option<ReAcl>,
+    pub invite_bl_userhost_rt: Option<ReAcl>,
+    #[serde(skip)]
+    pub invite_bl_nick_rt: Option<ReAcl>,
 
     #[serde(skip)]
     pub url_re: Option<Regex>,
@@ -109,7 +112,8 @@ impl BotConfig {
         // read & parse ACLs ()
         config.mode_o_acl_rt = Some(ReAcl::new(&config.mode_o_acl)?);
         config.auto_o_acl_rt = Some(ReAcl::new(&config.auto_o_acl)?);
-        config.invite_blacklist_rt = Some(ReAcl::new(&config.invite_blacklist)?);
+        config.invite_bl_userhost_rt = Some(ReAcl::new(&config.invite_bl_userhost)?);
+        config.invite_bl_nick_rt = Some(ReAcl::new(&config.invite_bl_nick)?);
 
         // pre-compile url detection regex
         config.url_re = Some(Regex::new(&config.url_regex)?);
