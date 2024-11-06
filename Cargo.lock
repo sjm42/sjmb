@@ -125,9 +125,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.92"
+version = "1.0.93"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74f37166d7d48a0284b99dd824694c26119c700b53bf0d1540cdb147dbdaaf13"
+checksum = "4c95c10ba0b00a02636238b814946408b1322d5ac4760326e6fb8ec956d85775"
 
 [[package]]
 name = "async-compression"
@@ -272,9 +272,9 @@ checksum = "9ac0150caa2ae65ca5bd83f25c7de183dea78d4d366469f148435e2acfbad0da"
 
 [[package]]
 name = "cc"
-version = "1.1.34"
+version = "1.1.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67b9470d453346108f93a59222a9a1a5724db32d0a4727b7ab7ace4b4d822dc9"
+checksum = "baee610e9452a8f6f0a1b6194ec09ff9e2d85dea54432acdae41aa0761c95d70"
 dependencies = [
  "shlex",
 ]
@@ -1288,7 +1288,7 @@ checksum = "ddc24109865250148c2e0f3d25d4f0f479571723792d3802153c60922a4fb708"
 [[package]]
 name = "irc"
 version = "1.0.0"
-source = "git+https://github.com/aatxe/irc.git#3b9ab628fd3c94d37355930e5bfa402f035b55ac"
+source = "git+https://github.com/aatxe/irc.git#9c9e8b2b83122c02c9cdad1eb8f9f073f9095bd2"
 dependencies = [
  "chrono",
  "encoding",
@@ -1309,7 +1309,7 @@ dependencies = [
 [[package]]
 name = "irc-proto"
 version = "1.0.0"
-source = "git+https://github.com/aatxe/irc.git#3b9ab628fd3c94d37355930e5bfa402f035b55ac"
+source = "git+https://github.com/aatxe/irc.git#9c9e8b2b83122c02c9cdad1eb8f9f073f9095bd2"
 dependencies = [
  "bytes",
  "encoding",
@@ -1880,9 +1880,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e346e016eacfff12233c243718197ca12f148c84e1e84268a896699b41c71780"
+checksum = "7d5a626c6807713b15cac82a6acaccd6043c9a5408c24baae07611fec3f243da"
 dependencies = [
  "cfg_aliases",
  "libc",
