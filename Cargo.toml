@@ -15,8 +15,8 @@ resolver = "2"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = ["tls-rust", "ctcp", "channel-lists", "toml_config", "encoding"] }
-# irc = { version = "1", default-features = false, features = ["tls-rust", "ctcp", "channel-lists", "toml_config", "encoding"] }
+irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = ["ctcp", "channel-lists", "toml_config", "encoding"] }
+# irc = { version = "1", default-features = false, features = ["ctcp", "channel-lists", "toml_config"] }
 anyhow = "1"
 chrono = "0"
 chrono-tz = "0"
