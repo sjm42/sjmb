@@ -406,9 +406,9 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16b80225097f2e5ae4e7179dd2266824648f3e2f49d9134d584b76389d31c4c3"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
 dependencies = [
  "libc",
 ]
@@ -1274,7 +1274,7 @@ checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
 [[package]]
 name = "irc"
 version = "1.0.0"
-source = "git+https://github.com/aatxe/irc.git#61f43f1b89ad08067d19e1cb8912842a34d52160"
+source = "git+https://github.com/aatxe/irc.git#84743859ddd8d850bc83ee6f0f526c9b754e2b26"
 dependencies = [
  "chrono",
  "encoding",
@@ -1284,7 +1284,6 @@ dependencies = [
  "parking_lot",
  "pin-project",
  "serde",
- "serde_derive",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
@@ -1295,7 +1294,7 @@ dependencies = [
 [[package]]
 name = "irc-proto"
 version = "1.0.0"
-source = "git+https://github.com/aatxe/irc.git#61f43f1b89ad08067d19e1cb8912842a34d52160"
+source = "git+https://github.com/aatxe/irc.git#84743859ddd8d850bc83ee6f0f526c9b754e2b26"
 dependencies = [
  "bytes",
  "encoding",
