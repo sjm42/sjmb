@@ -1287,8 +1287,8 @@ checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
 
 [[package]]
 name = "irc"
-version = "1.0.0"
-source = "git+https://github.com/aatxe/irc.git#c5fee754798612cb047fa2998433daf1cd6efed3"
+version = "1.1.0"
+source = "git+https://github.com/aatxe/irc.git#fb6ace269967bb076b3ac6bebc7d6fd06b6caaf3"
 dependencies = [
  "chrono",
  "encoding",
@@ -1307,8 +1307,8 @@ dependencies = [
 
 [[package]]
 name = "irc-proto"
-version = "1.0.0"
-source = "git+https://github.com/aatxe/irc.git#c5fee754798612cb047fa2998433daf1cd6efed3"
+version = "1.1.0"
+source = "git+https://github.com/aatxe/irc.git#fb6ace269967bb076b3ac6bebc7d6fd06b6caaf3"
 dependencies = [
  "bytes",
  "encoding",
