@@ -43,8 +43,8 @@ pub trait CollapseWhiteSpace {
 }
 
 impl<S> CollapseWhiteSpace for S
-    where
-        S: AsRef<str>,
+where
+    S: AsRef<str>,
 {
     fn ws_collapse(self) -> String {
         self.as_ref()
@@ -53,5 +53,4 @@ impl<S> CollapseWhiteSpace for S
             .join(" ")
     }
 }
-
 // EOF

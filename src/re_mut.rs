@@ -1,6 +1,5 @@
 // re_acl.rs
 
-
 use regex::Regex;
 
 use crate::*;
@@ -26,8 +25,8 @@ impl ReMut {
         Ok(Self { re_str, re_vec })
     }
     pub fn re_mut<S>(&self, text: S) -> Option<(usize, String)>
-        where
-            S: AsRef<str>,
+    where
+        S: AsRef<str>,
     {
         for (i, re) in self.re_vec.iter().enumerate() {
             if re.is_match(text.as_ref()) {

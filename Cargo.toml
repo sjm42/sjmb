@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.8.1"
+version = "1.8.2"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -14,13 +14,13 @@ resolver = "2"
 
 
 [dependencies]
-irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = ["ctcp", "channel-lists", "toml_config", "encoding"] }
-# irc = { version = "1", default-features = false, features = ["ctcp", "channel-lists", "toml_config"] }
 anyhow = "1"
 chrono = "0"
 chrono-tz = "0"
 clap = { version = "4", features = ["derive"] }
 futures = "0"
+irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = ["ctcp", "channel-lists", "toml_config", "encoding"] }
+# irc = { version = "1", default-features = false, features = ["ctcp", "channel-lists", "toml_config"] }
 regex = "1"
 reqwest = { version = "0", features = [
     "brotli",

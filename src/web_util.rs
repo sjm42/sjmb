@@ -11,8 +11,8 @@ const CONN_TIMEOUT: u64 = 5;
 const REQW_TIMEOUT: u64 = 10;
 
 pub async fn get_text_body<S>(url_s: S) -> anyhow::Result<Option<(String, String)>>
-    where
-        S: AsRef<str>,
+where
+    S: AsRef<str>,
 {
     let (body, ct) = get_body(url_s.as_ref()).await?;
 
@@ -25,8 +25,8 @@ pub async fn get_text_body<S>(url_s: S) -> anyhow::Result<Option<(String, String
 }
 
 pub async fn get_body<S>(url_s: S) -> anyhow::Result<(String, String)>
-    where
-        S: AsRef<str>,
+where
+    S: AsRef<str>,
 {
     // We want a normalized and valid url, IDN handled etc.
     let url = Url::parse(url_s.as_ref())?;

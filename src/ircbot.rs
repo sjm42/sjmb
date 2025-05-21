@@ -1,7 +1,6 @@
 // ircbot.rs
 
-use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc};
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc};
 
 use anyhow::{anyhow, bail};
 use chrono::*;
@@ -12,14 +11,14 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tera::Tera;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 use crate::*;
 
 const INITIAL_SIZE: usize = 32;
-const IRC_OP_THROTTLE: u64 = 3;
+const IRC_OP_THROTTLE: u64 = 2;
 // in seconds
-const IRC_MSG_THROTTLE: u64 = 2; // in seconds
+const IRC_MSG_THROTTLE: u64 = 1; // in seconds
 
 pub type IrcCmdHandler = fn(&IrcBot, &irc::proto::Command) -> anyhow::Result<bool>;
 pub type MsgHandler = fn(&mut IrcBot, &str, &str, &str) -> anyhow::Result<bool>;
@@ -280,22 +279,22 @@ impl IrcBot {
     }
 
     pub fn register_privmsg_priv<S>(&mut self, cmd: S, handler: MsgHandler)
-        where
-            S: AsRef<str> + Display,
+    where
+        S: AsRef<str> + Display,
     {
         self.handlers_privmsg_priv.insert(cmd.to_string(), handler);
     }
 
     pub fn register_privmsg_open<S>(&mut self, cmd: S, handler: MsgHandler)
-        where
-            S: AsRef<str> + Display,
+    where
+        S: AsRef<str> + Display,
     {
         self.handlers_privmsg_open.insert(cmd.to_string(), handler);
     }
 
     pub fn register_chanmsg<S>(&mut self, cmd: S, handler: MsgHandler)
-        where
-            S: AsRef<str> + Display,
+    where
+        S: AsRef<str> + Display,
     {
         self.handlers_chanmsg.insert(cmd.to_string(), handler);
     }
@@ -401,9 +400,9 @@ impl IrcBot {
     }
 
     pub fn new_msg<S1, S2>(&self, target: S1, msg: S2) -> anyhow::Result<()>
-        where
-            S1: AsRef<str> + Display,
-            S2: AsRef<str> + Display,
+    where
+        S1: AsRef<str> + Display,
+        S2: AsRef<str> + Display,
     {
         let (target_s, msg_s) = (target.to_string(), msg.to_string());
         let mynick = &self.mynick;

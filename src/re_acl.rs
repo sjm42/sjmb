@@ -1,6 +1,5 @@
 // re_acl.rs
 
-
 use regex::Regex;
 
 use crate::*;
@@ -26,8 +25,8 @@ impl ReAcl {
         Ok(Self { acl_str, acl_re })
     }
     pub fn re_match<S>(&self, text: S) -> Option<(usize, &str)>
-        where
-            S: AsRef<str>,
+    where
+        S: AsRef<str>,
     {
         for (i, re) in self.acl_re.iter().enumerate() {
             if re.is_match(text.as_ref()) {
@@ -38,5 +37,4 @@ impl ReAcl {
         None
     }
 }
-
 // EOF
