@@ -376,6 +376,7 @@ impl IrcBot {
         self.op_sender = Some(tx);
 
         tokio::spawn(async move {
+            debug!("Starting op queue receiver");
             read_op_queue(irc_sender, rx).await;
         });
     }
@@ -386,16 +387,19 @@ impl IrcBot {
         self.msg_sender = Some(tx);
 
         tokio::spawn(async move {
+            debug!("Starting msg queue receiver");
             read_msg_queue(irc_sender, rx).await;
         });
     }
 
     pub fn new_op(&self, op: IrcOp) -> anyhow::Result<bool> {
+        debug!("new_op({op:?})");
         let op_sender = self
             .op_sender
             .as_ref()
             .ok_or_else(|| anyhow!("No sender"))?;
         op_sender.send(op)?;
+        debug!("new_op sent to queue");
         Ok(true)
     }
 
@@ -546,13 +550,16 @@ impl IrcBot {
                     ))?;
                 }
 
-                self.new_op(IrcOp::UrlLog(
+
+                let op = IrcOp::UrlLog(
                     db,
                     url_s.clone(),
                     channel.to_owned(),
                     nick.to_owned(),
                     Utc::now().timestamp(),
-                ))?;
+                );
+                debug!("New op: {op:?}");
+                self.new_op(op)?;
             }
 
             // Are we supposed to detect urls and show titles on this channel?
@@ -588,6 +595,7 @@ impl IrcBot {
 // We are throttling messages here
 async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcMsg>) {
     while let Some(m) = rx.recv().await {
+        debug!("read_msg_queue: new msg: {m:?}");
         let (target, msg) = (m.target, m.msg);
         if let Err(e) = irc_sender.send_privmsg(target, msg) {
             error!("{e}");
@@ -599,6 +607,7 @@ async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcMs
 // We are throttling operations (mode/join/invite/nick etc) here
 async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: UnboundedReceiver<IrcOp>) {
     while let Some(op) = rx.recv().await {
+        debug!("read_op_queue: new op: {op:?}");
         let res = op_dispatch(irc_sender.clone(), op).await;
         if let Err(e) = res {
             error!("{e}");
@@ -643,7 +652,10 @@ async fn op_handle_urlcheck(
     tz: Tz,
     exp_days: i64,
 ) -> anyhow::Result<()> {
+    debug!("op_handle_urlcheck(): url {url}");
     let dbc = start_db(&db).await?;
+    debug!("op_handle_urlcheck(): db connected");
+
     if let Some(old) = db_check_url(&dbc, &url, &channel, exp_days * 86400).await? {
         if let (Some(first), Some(last)) = (old.first, old.last) {
             let ts_first = DateTime::from_timestamp(first, 0)
@@ -680,6 +692,7 @@ async fn op_handle_urlfetch(
     channel: String,
     output_filter: Regex,
 ) -> anyhow::Result<()> {
+    debug!("op_handle_urlfetch()");
     if let Some((body, _ct)) = get_text_body(&url).await? {
         for res_cap in output_filter.captures_iter(&body) {
             let res_str = &res_cap[1];
@@ -697,6 +710,7 @@ async fn op_handle_urllog(
     nick: String,
     ts: i64,
 ) -> anyhow::Result<()> {
+    debug!("op_handle_urllog(): insert url {url}");
     let dbc = start_db(&db).await?;
     info!(
         "Urllog: inserted {} row(s)",
@@ -719,8 +733,11 @@ async fn op_handle_urltitle(
     url: String,
     channel: String,
 ) -> anyhow::Result<()> {
+    debug!("op_handle_urltitle(): fetching url {url}");
     if let Some((body, _ct)) = get_text_body(&url).await? {
+        debug!("Parsing title from body: url {url}");
         let html = webpage::HTML::from_string(body, None)?;
+
         if let Some(title) = html.title {
             // ignore titles that are just the url repeated
             if title != url {
@@ -736,7 +753,7 @@ async fn op_handle_urltitle(
                         i += 1;
                     }
                     let (s1, _) = title_c.split_at(i);
-                    title_c = format!("{}...", s1);
+                    title_c = format!("{s1}...");
                 }
                 let say = format!("\"{title_c}\"");
                 irc_sender.send_privmsg(channel, say)?;

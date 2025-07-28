@@ -1040,7 +1040,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots 1.0.2",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -1244,7 +1244,8 @@ checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
 [[package]]
 name = "irc"
 version = "1.1.0"
-source = "git+https://github.com/aatxe/irc.git#fb6ace269967bb076b3ac6bebc7d6fd06b6caaf3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1be91867682072063576cac1279b7838f1cdfa87a346de8f8b1dc93cfb337b8"
 dependencies = [
  "chrono",
  "encoding",
@@ -1264,7 +1265,8 @@ dependencies = [
 [[package]]
 name = "irc-proto"
 version = "1.1.0"
-source = "git+https://github.com/aatxe/irc.git#fb6ace269967bb076b3ac6bebc7d6fd06b6caaf3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "259640031f2f3e6d9fa632c7b314ba1eb5d1f88b3583bd2dd2e8f17155a19b5b"
 dependencies = [
  "bytes",
  "encoding",
@@ -2017,7 +2019,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots 1.0.2",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2303,7 +2305,7 @@ checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
 name = "sjmb"
-version = "1.8.2"
+version = "1.9.0"
 dependencies = [
  "anyhow",
  "build-data",
@@ -2426,7 +2428,6 @@ dependencies = [
  "memchr",
  "once_cell",
  "percent-encoding",
- "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -2436,7 +2437,6 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -3269,15 +3269,6 @@ dependencies = [
  "markup5ever_rcdom",
  "serde_json",
  "url",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.2",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.8.2"
+version = "1.9.0"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -19,8 +19,8 @@ chrono = "0"
 chrono-tz = "0"
 clap = { version = "4", features = ["derive"] }
 futures = "0"
-irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = ["ctcp", "channel-lists", "toml_config", "encoding"] }
-# irc = { version = "1", default-features = false, features = ["ctcp", "channel-lists", "toml_config"] }
+# irc = { git = "https://github.com/aatxe/irc.git", default-features = false, features = ["ctcp", "channel-lists", "toml_config", "encoding"] }
+irc = { version = "1.1", default-features = false, features = ["ctcp", "channel-lists", "toml_config", "encoding"] }
 regex = "1"
 reqwest = { version = "0", features = [
     "brotli",
@@ -35,10 +35,12 @@ reqwest = { version = "0", features = [
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shellexpand = { version = "3", features = ["full"] }
+# do not enable TLS support for SQLx or connections will just hang
+# sjm 2025-07-28
 sqlx = { version = "0", features = [
     "macros",
     "migrate",
-    "runtime-tokio-rustls",
+    "runtime-tokio",
     "postgres",
 ] }
 tera = "1"
@@ -47,6 +49,7 @@ tracing = { version = "0", features = ["log"] }
 tracing-subscriber = "0"
 url = "2"
 webpage = { version = "2", default-features = false }
+# log = "0.4.27"
 
 
 [build-dependencies]

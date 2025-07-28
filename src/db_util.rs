@@ -37,11 +37,13 @@ pub async fn start_db<S>(db_url: S) -> anyhow::Result<DbCtx>
 where
     S: AsRef<str>,
 {
+    debug!("start_db(): connecting");
     let dbc = sqlx::PgPool::connect(db_url.as_ref()).await?;
     let db = DbCtx {
         dbc,
         update_change: true,
     };
+    debug!("start_db(): connected");
     Ok(db)
 }
 
@@ -59,6 +61,7 @@ const SQL_INSERT_URL: &str = "insert into url (seen, channel, nick, url) \
     values ($1, $2, $3, $4)";
 
 pub async fn db_add_url(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
+    debug!("db_add_url({ur:?})");
     let mut rowcnt = 0;
     let mut retry = 0;
     while retry < RETRY_CNT {
@@ -90,6 +93,8 @@ pub async fn db_add_url(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
     if retry > 0 {
         error!("GAVE UP after {RETRY_CNT} retries.");
     }
+
+    info!("db_add_url: Ok({rowcnt})");
     Ok(rowcnt)
 }
 
@@ -110,13 +115,15 @@ pub async fn db_check_url(
     chan: &str,
     expire_s: i64,
 ) -> anyhow::Result<Option<CheckUrl>> {
+    debug!("db_check_url(): url {url}");
     let mut st_check_url = sqlx::query_as::<_, CheckUrl>(SQL_CHECK_URL)
         .bind(url)
         .bind(chan)
         .bind(Utc::now().timestamp() - expire_s)
         .fetch(&db.dbc);
     let res = st_check_url.try_next().await?;
-    info!("check_url: {res:?}");
+
+    info!("db_check_url: {res:?}");
     Ok(res)
 }
 // EOF
