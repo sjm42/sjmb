@@ -1,9 +1,7 @@
 // db_util.rs
 
-use chrono::*;
 use futures::TryStreamExt;
 use sqlx::{Pool, Postgres};
-use tokio::time::{sleep, Duration};
 
 use crate::*;
 
@@ -83,6 +81,8 @@ pub async fn db_add_url(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
                 error!("Insert failed: {e:?}");
             }
         }
+
+        // this is stupid but was sometimes necessary with SQLite
         error!("Retrying in {}s...", RETRY_SLEEP);
         sleep(Duration::new(RETRY_SLEEP, 0)).await;
         retry += 1;
@@ -90,7 +90,7 @@ pub async fn db_add_url(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
     if db.update_change {
         db_mark_change(&db.dbc).await?;
     }
-    if retry > 0 {
+    if retry >= RETRY_CNT {
         error!("GAVE UP after {RETRY_CNT} retries.");
     }
 

@@ -1,8 +1,5 @@
 // web_util.rs
 
-use std::time::Duration;
-
-use anyhow::anyhow;
 use url::Url;
 
 use crate::*;
@@ -55,5 +52,4 @@ where
     let body = resp.text().await?;
     Ok((body, ct))
 }
-
 // EOF

@@ -1,17 +1,12 @@
 // ircbot.rs
 
-use std::{cmp::Ordering, collections::HashMap, fmt::Display, fs::File, io::BufReader, sync::Arc};
+use std::{cmp::Ordering, fmt::Display, fs::File, io::BufReader, sync::Arc};
 
-use anyhow::{anyhow, bail};
-use chrono::*;
 use chrono_tz::Tz;
 use futures::prelude::*;
 use irc::client::prelude::*;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
 use tera::Tera;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tokio::time::{sleep, Duration};
 
 use crate::*;
 
@@ -95,7 +90,6 @@ pub struct BotConfig {
     #[serde(skip)]
     pub url_dup_tz: Option<HashMap<String, Tz>>,
 }
-
 impl BotConfig {
     pub fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
         let now1 = Utc::now();
@@ -189,7 +183,6 @@ pub struct IrcBot {
     handlers_privmsg_priv: HashMap<String, MsgHandler>,
     handlers_chanmsg: HashMap<String, MsgHandler>,
 }
-
 impl IrcBot {
     pub async fn new(opts: &OptsCommon) -> anyhow::Result<Self> {
         let bot_cfg = match BotConfig::new(opts) {
@@ -429,12 +422,12 @@ impl IrcBot {
         let userhost = &self.msg_userhost();
         info!("*** Privmsg from {nick} ({userhost}): {cmd} {args}");
 
-        if let Some(true) = cfg.privileged_nicks.get(nick) {
+        if let Some(true) = cfg.privileged_nicks.get(nick)
             // Handle privileged commands
-            if self.handle_privmsg_priv(msg, cmd, args)? {
-                // a command was found and executed if true was returned
-                return Ok(true);
-            }
+            && self.handle_privmsg_priv(msg, cmd, args)?
+        {
+            // a command was found and executed if true was returned
+            return Ok(true);
         }
 
         // Handle public commands
@@ -483,34 +476,33 @@ impl IrcBot {
         if let (Some(u_cmd), Some(true)) = (
             cmd.strip_prefix('!'),
             get_wild(&cfg.url_cmd_channels, channel),
-        ) {
-            if let Some(c) = cfg.url_cmd_list.get(u_cmd) {
-                // phew we found an url command to execute!
+        ) && let Some(c) = cfg.url_cmd_list.get(u_cmd)
+        {
+            // phew we found an url command to execute!
 
-                let u_args = args.split_whitespace().collect::<Vec<&str>>();
-                debug!("Url cmd ctx arg: {args:?}");
-                debug!("Url cmd ctx args: {u_args:?}");
+            let u_args = args.split_whitespace().collect::<Vec<&str>>();
+            debug!("Url cmd ctx arg: {args:?}");
+            debug!("Url cmd ctx args: {u_args:?}");
 
-                // render URL to retrieve
-                let mut ctx = tera::Context::new();
-                ctx.insert("arg", args);
-                ctx.insert("args", &u_args);
-                debug!("Url cmd ctx: {ctx:#?}");
+            // render URL to retrieve
+            let mut ctx = tera::Context::new();
+            ctx.insert("arg", args);
+            ctx.insert("args", &u_args);
+            debug!("Url cmd ctx: {ctx:#?}");
 
-                let url = cfg
-                    .url_cmd_tera
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("No tera"))?
-                    .render(u_cmd, &ctx)?;
-                info!("URL cmd: !{u_cmd} --> {url}");
-                let f = c
-                    .output_filter_re
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("No output regex"))?
-                    .clone();
-                self.new_op(IrcOp::UrlFetch(url, channel.to_string(), f))?;
-                return Ok(true);
-            }
+            let url = cfg
+                .url_cmd_tera
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No tera"))?
+                .render(u_cmd, &ctx)?;
+            info!("URL cmd: !{u_cmd} --> {url}");
+            let f = c
+                .output_filter_re
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No output regex"))?
+                .clone();
+            self.new_op(IrcOp::UrlFetch(url, channel.to_string(), f))?;
+            return Ok(true);
         }
 
         let mut found_url = false;
@@ -550,7 +542,6 @@ impl IrcBot {
                     ))?;
                 }
 
-
                 let op = IrcOp::UrlLog(
                     db,
                     url_s.clone(),
@@ -568,17 +559,16 @@ impl IrcBot {
             }
 
             // Are we supposed to mutate some urls on this channel?
-            if let Some(true) = get_wild(&cfg.url_mut_channels, channel) {
-                debug!("Checking url mut");
-                if let Some((_i, new_url)) = cfg
-                    .url_mut_re
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("No url_mut_re"))?
-                    .re_mut(&url_s)
-                {
-                    self.new_msg(channel, new_url.as_str())?;
-                    self.new_op(IrcOp::UrlTitle(new_url, channel.to_string()))?;
-                }
+            if let Some(true) = get_wild(&cfg.url_mut_channels, channel)
+                && let Some((_i, new_url)) = cfg
+                .url_mut_re
+                .as_ref()
+                .ok_or_else(|| anyhow!("No url_mut_re"))?
+                .re_mut(&url_s)
+            {
+                debug!("Doing url mut");
+                self.new_msg(channel, new_url.as_str())?;
+                self.new_op(IrcOp::UrlTitle(new_url, channel.to_string()))?;
             }
         }
 
@@ -656,30 +646,30 @@ async fn op_handle_urlcheck(
     let dbc = start_db(&db).await?;
     debug!("op_handle_urlcheck(): db connected");
 
-    if let Some(old) = db_check_url(&dbc, &url, &channel, exp_days * 86400).await? {
-        if let (Some(first), Some(last)) = (old.first, old.last) {
-            let ts_first = DateTime::from_timestamp(first, 0)
-                .unwrap_or_default()
-                .with_timezone(&tz);
+    if let Some(old) = db_check_url(&dbc, &url, &channel, exp_days * 86400).await?
+        && let (Some(first), Some(last)) = (old.first, old.last)
+    {
+        let ts_first = DateTime::from_timestamp(first, 0)
+            .unwrap_or_default()
+            .with_timezone(&tz);
 
-            match old.cnt.cmp(&1) {
-                Ordering::Equal => {
-                    irc_sender.send_privmsg(channel, format!("Wanha URL, nähty {ts_first}"))?;
-                }
-                Ordering::Greater => {
-                    let ts_last = DateTime::from_timestamp(last, 0)
-                        .unwrap_or_default()
-                        .with_timezone(&tz);
-                    irc_sender.send_privmsg(
-                        channel,
-                        format!(
-                            "Wanha URL, nähty {} kertaa, ensin {ts_first} ja viimeksi {ts_last}",
-                            old.cnt
-                        ),
-                    )?;
-                }
-                _ => {}
+        match old.cnt.cmp(&1) {
+            Ordering::Equal => {
+                irc_sender.send_privmsg(channel, format!("Wanha URL, nähty {ts_first}"))?;
             }
+            Ordering::Greater => {
+                let ts_last = DateTime::from_timestamp(last, 0)
+                    .unwrap_or_default()
+                    .with_timezone(&tz);
+                irc_sender.send_privmsg(
+                    channel,
+                    format!(
+                        "Wanha URL, nähty {} kertaa, ensin {ts_first} ja viimeksi {ts_last}",
+                        old.cnt
+                    ),
+                )?;
+            }
+            _ => {}
         }
     }
 
@@ -738,26 +728,26 @@ async fn op_handle_urltitle(
         debug!("Parsing title from body: url {url}");
         let html = webpage::HTML::from_string(body, None)?;
 
-        if let Some(title) = html.title {
+        if let Some(title) = html.title
             // ignore titles that are just the url repeated
-            if title != url {
-                // Replace all consecutive whitespace, including newlines etc with a single space
-                let mut title_c = title.ws_collapse();
-                if title_c.len() > 400 {
-                    let mut i = 396;
-                    loop {
-                        // find a UTF-8 code point boundary to safely split at
-                        if title_c.is_char_boundary(i) {
-                            break;
-                        }
-                        i += 1;
+            && title != url
+        {
+            // Replace all consecutive whitespace, including newlines etc with a single space
+            let mut title_c = title.ws_collapse();
+            if title_c.len() > 400 {
+                let mut i = 396;
+                loop {
+                    // find a UTF-8 code point boundary to safely split at
+                    if title_c.is_char_boundary(i) {
+                        break;
                     }
-                    let (s1, _) = title_c.split_at(i);
-                    title_c = format!("{s1}...");
+                    i += 1;
                 }
-                let say = format!("\"{title_c}\"");
-                irc_sender.send_privmsg(channel, say)?;
+                let (s1, _) = title_c.split_at(i);
+                title_c = format!("{s1}...");
             }
+            let say = format!("\"{title_c}\"");
+            irc_sender.send_privmsg(channel, say)?;
         }
     }
     Ok(())

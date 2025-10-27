@@ -1,9 +1,7 @@
 // bin/sjmb.rs
 
-use chrono::*;
 use clap::Parser;
 use irc::client::prelude::*;
-use tokio::time::{Duration, sleep};
 
 use sjmb::*;
 
@@ -13,16 +11,7 @@ async fn main() -> anyhow::Result<()> {
     opts.finalize()?;
     opts.start_pgm(env!("CARGO_BIN_NAME"));
 
-    let mut first_time = true;
     loop {
-        if first_time {
-            first_time = false;
-        } else {
-            error!("Sleeping 10s...");
-            sleep(Duration::from_secs(10)).await;
-            error!("Retrying start");
-        }
-
         let mut ircbot = IrcBot::new(&opts).await?;
         bot_cmd_setup(&mut ircbot);
 
@@ -30,6 +19,10 @@ async fn main() -> anyhow::Result<()> {
             error!("{e}");
         }
         drop(ircbot);
+
+        error!("Sleeping 10s...");
+        sleep(Duration::from_secs(10)).await;
+        error!("Retrying start");
     }
 }
 
@@ -146,13 +139,15 @@ fn handle_pcmd_dumpacl(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::R
 }
 
 fn handle_pcmd_say(bot: &mut IrcBot, _: &str, _: &str, say: &str) -> anyhow::Result<bool> {
-    if say.starts_with('#') {
+    if say.starts_with('#')
         // channel was specified
-        if let Some((channel, msg)) = say.split_once(' ') {
-            bot.new_msg(channel, msg)?;
-            return Ok(true);
-        }
+        && let Some((channel, msg)) = say.split_once(' ')
+    {
+        bot.new_msg(channel, msg)?;
+        return Ok(true);
     }
+
+    // use the configured (default) channel name
     let cfg_channel = &bot.bot_cfg.channel;
     bot.new_msg(cfg_channel, say)?;
     Ok(true)
@@ -176,7 +171,10 @@ fn handle_pcmd_invite(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
     let nick = bot.msg_nick();
     let userhost = bot.msg_userhost();
 
-    let acl_resp_u = bot.bot_cfg.invite_bl_userhost_rt.as_ref()
+    let acl_resp_u = bot
+        .bot_cfg
+        .invite_bl_userhost_rt
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no invite_bl_userhost_rt"))?
         .re_match(userhost);
     if let Some((i, s)) = acl_resp_u {
@@ -185,7 +183,10 @@ fn handle_pcmd_invite(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
         return Ok(true);
     }
 
-    let acl_resp_n = bot.bot_cfg.invite_bl_nick_rt.as_ref()
+    let acl_resp_n = bot
+        .bot_cfg
+        .invite_bl_nick_rt
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no invite_bl_nick_rt"))?
         .re_match(nick);
     if let Some((i, s)) = acl_resp_n {
@@ -198,7 +199,6 @@ fn handle_pcmd_invite(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
     info!("Inviting {nick} to {channel}");
     bot.new_op(IrcOp::Invite(nick.into(), channel))?;
 
-
     Ok(true)
 }
 
@@ -208,7 +208,10 @@ fn handle_pcmd_mode_o(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
     let channel = &bot.bot_cfg.channel;
 
     let now1 = Utc::now();
-    let acl_resp = bot.bot_cfg.mode_o_acl_rt.as_ref()
+    let acl_resp = bot
+        .bot_cfg
+        .mode_o_acl_rt
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
         .re_match(userhost);
     debug!(
