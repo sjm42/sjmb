@@ -109,12 +109,7 @@ const SQL_CHECK_URL: &str = "select count(id) as cnt, min(seen) as first, max(se
      from url \
      where url = $1 and channel = $2 and seen > $3";
 
-pub async fn db_check_url(
-    db: &DbCtx,
-    url: &str,
-    chan: &str,
-    expire_s: i64,
-) -> anyhow::Result<Option<CheckUrl>> {
+pub async fn db_check_url(db: &DbCtx, url: &str, chan: &str, expire_s: i64) -> anyhow::Result<Option<CheckUrl>> {
     debug!("db_check_url(): url {url}");
     let mut st_check_url = sqlx::query_as::<_, CheckUrl>(SQL_CHECK_URL)
         .bind(url)

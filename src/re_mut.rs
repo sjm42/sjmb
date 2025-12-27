@@ -22,14 +22,11 @@ impl ReMut {
         }
         Ok(Self { re_str, re_vec })
     }
-    pub fn re_mut<S>(&self, text: S) -> Option<(usize, String)>
-    where
-        S: AsRef<str>,
-    {
+    pub fn re_mut(&self, text: &str) -> Option<(usize, String)> {
         for (i, re) in self.re_vec.iter().enumerate() {
-            if re.is_match(text.as_ref()) {
+            if re.is_match(text) {
                 // return index of match along with the mutated string
-                return Some((i, re.replace(text.as_ref(), &self.re_str[i].1).to_string()));
+                return Some((i, re.replace(text, &self.re_str[i].1).to_string()));
             }
         }
         None

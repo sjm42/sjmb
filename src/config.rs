@@ -1,7 +1,6 @@
 // config.rs
 
 use clap::Parser;
-use std::env;
 
 use crate::*;
 

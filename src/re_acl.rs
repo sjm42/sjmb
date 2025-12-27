@@ -22,14 +22,11 @@ impl ReAcl {
         }
         Ok(Self { acl_str, acl_re })
     }
-    pub fn re_match<S>(&self, text: S) -> Option<(usize, &str)>
-    where
-        S: AsRef<str>,
-    {
+    pub fn re_match(&self, text: &str) -> Option<(usize, String)> {
         for (i, re) in self.acl_re.iter().enumerate() {
-            if re.is_match(text.as_ref()) {
+            if re.is_match(text) {
                 // return index of match along with the matched regex string
-                return Some((i, &self.acl_str[i]));
+                return Some((i, self.acl_str[i].to_string()));
             }
         }
         None

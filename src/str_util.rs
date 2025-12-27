@@ -7,14 +7,11 @@ const TS_FMT_SHORT: &str = "%b %d %H:%M";
 const TS_FMT_SHORT_YEAR: &str = "%Y %b %d %H:%M";
 const TS_NONE: &str = "(none)";
 
-pub fn ts_fmt<S: AsRef<str>>(fmt: S, ts: i64) -> String {
+pub fn ts_fmt(fmt: &str, ts: i64) -> String {
     if ts == 0 {
         TS_NONE.to_string()
     } else {
-        DateTime::from_timestamp(ts, 0).map_or_else(
-            || TS_NONE.to_string(),
-            |ts| ts.format(fmt.as_ref()).to_string(),
-        )
+        DateTime::from_timestamp(ts, 0).map_or_else(|| TS_NONE.to_string(), |ts| ts.format(fmt).to_string())
     }
 }
 
@@ -42,15 +39,9 @@ pub trait CollapseWhiteSpace {
     fn ws_collapse(self) -> String;
 }
 
-impl<S> CollapseWhiteSpace for S
-where
-    S: AsRef<str>,
-{
+impl CollapseWhiteSpace for &str {
     fn ws_collapse(self) -> String {
-        self.as_ref()
-            .split_whitespace()
-            .collect::<Vec<&str>>()
-            .join(" ")
+        self.split_whitespace().collect::<Vec<&str>>().join(" ")
     }
 }
 // EOF

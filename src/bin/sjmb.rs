@@ -1,7 +1,6 @@
 // bin/sjmb.rs
 
 use clap::Parser;
-use irc::client::prelude::*;
 
 use sjmb::*;
 
@@ -12,13 +11,13 @@ async fn main() -> anyhow::Result<()> {
     opts.start_pgm(env!("CARGO_BIN_NAME"));
 
     loop {
-        let mut ircbot = IrcBot::new(&opts).await?;
-        bot_cmd_setup(&mut ircbot);
+        let (bot, irc_stream) = IrcBot::new(&opts).await?;
+        let ircbot = Arc::new(bot);
+        bot_cmd_setup(ircbot.clone()).await?;
 
-        if let Err(e) = ircbot.run().await {
+        if let Err(e) = ircbot.run(irc_stream).await {
             error!("{e}");
         }
-        drop(ircbot);
 
         error!("Sleeping 10s...");
         sleep(Duration::from_secs(10)).await;
@@ -26,62 +25,67 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-fn bot_cmd_setup(bot: &mut IrcBot) {
-    bot.clear_handlers();
+async fn bot_cmd_setup(bot: Arc<IrcBot>) -> anyhow::Result<()> {
+    bot.clear_handlers().await;
 
     // Register JOIN callback
-    bot.register_irc_cmd(handle_join);
+    bot.register_irc_cmd(into_cmd_handler(handle_join)).await;
 
     // ### Register commands
+    let config = bot.config.lock().await;
 
-    // these can be used by anyone
-    bot.register_privmsg_open(bot.bot_cfg.cmd_invite.to_string(), handle_pcmd_invite);
-    bot.register_privmsg_open(bot.bot_cfg.cmd_mode_o.to_string(), handle_pcmd_mode_o);
-    bot.register_privmsg_open(bot.bot_cfg.cmd_mode_v.to_string(), handle_pcmd_mode_v);
+    // these can be used by anyone (open)
+    bot.register_privmsg_open(&config.cmd_invite, into_msg_handler(handle_open_cmd_invite))
+        .await;
+    bot.register_privmsg_open(&config.cmd_mode_o, into_msg_handler(handle_open_cmd_mode_o))
+        .await;
+    bot.register_privmsg_open(&config.cmd_mode_v, into_msg_handler(handle_open_cmd_mode_v))
+        .await;
 
-    // these are restricted
-    bot.register_privmsg_priv(bot.bot_cfg.cmd_dumpacl.to_string(), handle_pcmd_dumpacl);
-    bot.register_privmsg_priv(bot.bot_cfg.cmd_join.to_string(), handle_pcmd_join);
-    bot.register_privmsg_priv(bot.bot_cfg.cmd_nick.to_string(), handle_pcmd_nick);
-    bot.register_privmsg_priv(bot.bot_cfg.cmd_reload.to_string(), handle_pcmd_reload);
-    bot.register_privmsg_priv(bot.bot_cfg.cmd_say.to_string(), handle_pcmd_say);
+    // these are restricted (privileged)
+    bot.register_privmsg_priv(&config.cmd_dumpacl, into_msg_handler(handle_priv_cmd_dump_acl))
+        .await;
+    bot.register_privmsg_priv(&config.cmd_join, into_msg_handler(handle_priv_cmd_join))
+        .await;
+    bot.register_privmsg_priv(&config.cmd_nick, into_msg_handler(handle_priv_cmd_nick))
+        .await;
+    bot.register_privmsg_priv(&config.cmd_reload, into_msg_handler(handle_priv_cmd_reload))
+        .await;
+    bot.register_privmsg_priv(&config.cmd_say, into_msg_handler(handle_priv_cmd_say))
+        .await;
+
+    Ok(())
 }
 
 // Process channel join messages here and return true only if something was reacted upon
-fn handle_join(bot: &IrcBot, cmd: &irc::proto::Command) -> anyhow::Result<bool> {
+async fn handle_join(bot: Arc<IrcBot>, cmd: Command) -> anyhow::Result<bool> {
     // We get called for all commands, this filter out only JOIN, otherwise bail out
     let channel = match cmd {
         Command::JOIN(ch, _, _) => ch,
         _ => return Ok(false),
     };
 
-    let nick = bot.msg_nick();
-    let userhost = bot.msg_userhost();
+    let (nick, userhost, my_nick, acl_resp) = {
+        let state = bot.state.lock().await;
+        let config = bot.config.lock().await;
+        let userhost = state.msg_userhost.clone();
+        let acl_resp = config
+            .auto_o_acl_rt
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
+            .re_match(&userhost);
+        (state.msg_nick.clone(), userhost, state.my_nick.clone(), acl_resp)
+    };
 
     info!("JOIN <{nick}> {userhost} {channel}",);
-    if nick == bot.mynick() {
+    if nick == my_nick {
         // Ignore self join :p
         return Ok(false);
     }
 
-    let now1 = Utc::now();
-    let acl_resp = bot
-        .bot_cfg
-        .auto_o_acl_rt
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
-        .re_match(userhost);
-    debug!(
-        "Auto-op acl check took {} µs.",
-        Utc::now()
-            .signed_duration_since(now1)
-            .num_microseconds()
-            .unwrap_or(-1)
-    );
-
     if let Some((i, s)) = acl_resp {
         info!("JOIN auto-op: ACL match {userhost} at index {i}: {s}",);
-        bot.new_op(IrcOp::ModeOper(channel.into(), nick.into()))?;
+        bot.new_op(IrcOp::ModeOper(channel, nick)).await?;
         return Ok(true);
     }
 
@@ -89,90 +93,14 @@ fn handle_join(bot: &IrcBot, cmd: &irc::proto::Command) -> anyhow::Result<bool> 
     Ok(false)
 }
 
-fn handle_pcmd_reload(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
-    // *** Try reloading all runtime configs ***
-    error!("*** RELOADING CONFIG ***");
-    let nick = bot.msg_nick().to_string();
-    match bot.reload() {
-        Ok(ret) => {
-            // reinitialize command handlers
-            bot_cmd_setup(bot);
-            bot.new_msg(nick, "*** Reload successful.")?;
-            Ok(ret)
-        }
-        Err(e) => {
-            bot.new_msg(nick, e.to_string())?;
-            Err(e)
-        }
-    }
-}
-
-fn handle_pcmd_dumpacl(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
-    info!("Dumping ACLs");
-    let nick = bot.msg_nick();
-
-    bot.new_msg(nick, "My +o ACL:")?;
-    for s in &bot
-        .bot_cfg
-        .mode_o_acl_rt
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
-        .acl_str
-    {
-        bot.new_msg(nick, s)?;
-    }
-    bot.new_msg(nick, "<EOF>")?;
-
-    bot.new_msg(nick, "My auto +o ACL:")?;
-    for s in &bot
-        .bot_cfg
-        .auto_o_acl_rt
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
-        .acl_str
-    {
-        bot.new_msg(nick, s)?;
-    }
-    bot.new_msg(nick, "<EOF>")?;
-
-    Ok(true)
-}
-
-fn handle_pcmd_say(bot: &mut IrcBot, _: &str, _: &str, say: &str) -> anyhow::Result<bool> {
-    if say.starts_with('#')
-        // channel was specified
-        && let Some((channel, msg)) = say.split_once(' ')
-    {
-        bot.new_msg(channel, msg)?;
-        return Ok(true);
-    }
-
-    // use the configured (default) channel name
-    let cfg_channel = &bot.bot_cfg.channel;
-    bot.new_msg(cfg_channel, say)?;
-    Ok(true)
-}
-
-fn handle_pcmd_nick(bot: &mut IrcBot, _: &str, _: &str, newnick: &str) -> anyhow::Result<bool> {
-    info!("Trying to change nick to {newnick}");
-    bot.new_op(IrcOp::Nick(newnick.into()))?;
-    Ok(true)
-}
-
-fn handle_pcmd_join(bot: &mut IrcBot, _: &str, _: &str, newchan: &str) -> anyhow::Result<bool> {
-    info!("Trying to join channel {newchan}");
-    bot.new_op(IrcOp::Join(newchan.into()))?;
-    Ok(true)
-}
-
-// These commands are unholy because the config is massaged inside general bot config
-
-fn handle_pcmd_invite(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
-    let nick = bot.msg_nick();
-    let userhost = bot.msg_userhost();
+async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
+    let nick = &bot.state.lock().await.msg_nick;
+    let userhost = &bot.state.lock().await.msg_userhost;
 
     let acl_resp_u = bot
-        .bot_cfg
+        .config
+        .lock()
+        .await
         .invite_bl_userhost_rt
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no invite_bl_userhost_rt"))?
@@ -184,7 +112,9 @@ fn handle_pcmd_invite(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
     }
 
     let acl_resp_n = bot
-        .bot_cfg
+        .config
+        .lock()
+        .await
         .invite_bl_nick_rt
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no invite_bl_nick_rt"))?
@@ -195,49 +125,119 @@ fn handle_pcmd_invite(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Re
         return Ok(true);
     }
 
-    let channel = bot.bot_cfg.channel.to_string();
+    let channel = bot.config.lock().await.channel.to_string();
     info!("Inviting {nick} to {channel}");
-    bot.new_op(IrcOp::Invite(nick.into(), channel))?;
-
-    Ok(true)
+    bot.clone().new_op(IrcOp::Invite(nick.into(), channel)).await
 }
 
-fn handle_pcmd_mode_o(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
-    let nick = bot.msg_nick();
-    let userhost = bot.msg_userhost();
-    let channel = &bot.bot_cfg.channel;
+async fn handle_open_cmd_mode_o(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
+    let nick = bot.state.lock().await.msg_nick.clone();
+    let userhost = bot.state.lock().await.msg_userhost.clone();
+    let channel = bot.config.lock().await.channel.clone();
 
     let now1 = Utc::now();
     let acl_resp = bot
-        .bot_cfg
+        .config
+        .lock()
+        .await
         .mode_o_acl_rt
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
-        .re_match(userhost);
+        .re_match(&userhost);
     debug!(
         "ACL check took {} µs.",
-        Utc::now()
-            .signed_duration_since(now1)
-            .num_microseconds()
-            .unwrap_or(-1)
+        Utc::now().signed_duration_since(now1).num_microseconds().unwrap_or(-1)
     );
 
     match acl_resp {
         Some((i, s)) => {
             info!("ACL match {userhost} at index {i}: {s}");
-            bot.new_op(IrcOp::ModeOper(channel.into(), nick.into()))
+            bot.new_op(IrcOp::ModeOper(channel, nick)).await
         }
         None => {
             info!("ACL check failed for {userhost}. Fallback +v.");
-            bot.new_op(IrcOp::ModeVoice(channel.into(), nick.into()))
+            bot.new_op(IrcOp::ModeVoice(channel, nick)).await
         }
     }
 }
 
-fn handle_pcmd_mode_v(bot: &mut IrcBot, _: &str, _: &str, _: &str) -> anyhow::Result<bool> {
-    let nick = bot.msg_nick();
-    let channel = &bot.bot_cfg.channel;
-    bot.new_op(IrcOp::ModeVoice(channel.into(), nick.into()))
+async fn handle_open_cmd_mode_v(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
+    let nick = bot.state.lock().await.msg_nick.clone();
+    let channel = bot.config.lock().await.channel.clone();
+    bot.new_op(IrcOp::ModeVoice(channel, nick)).await
+}
+
+async fn handle_priv_cmd_dump_acl(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
+    info!("Dumping ACLs");
+    let nick = bot.state.lock().await.msg_nick.clone();
+
+    bot.clone().new_msg(&nick, "My +o ACL:").await?;
+    for s in &bot
+        .config
+        .lock()
+        .await
+        .mode_o_acl_rt
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
+        .acl_str
+    {
+        bot.clone().new_msg(&nick, s).await?;
+    }
+    bot.clone().new_msg(&nick, "<EOF>").await?;
+
+    bot.clone().new_msg(&nick, "My auto +o ACL:").await?;
+    for s in &bot
+        .config
+        .lock()
+        .await
+        .auto_o_acl_rt
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
+        .acl_str
+    {
+        bot.clone().new_msg(&nick, s).await?;
+    }
+    bot.new_msg(&nick, "<EOF>").await
+}
+
+async fn handle_priv_cmd_join(bot: Arc<IrcBot>, _: String, _: String, new_chan: String) -> anyhow::Result<bool> {
+    info!("Trying to join channel {new_chan}");
+    bot.new_op(IrcOp::Join(new_chan)).await
+}
+
+async fn handle_priv_cmd_nick(bot: Arc<IrcBot>, _: String, _: String, new_nick: String) -> anyhow::Result<bool> {
+    info!("Trying to change nick to {new_nick}");
+    bot.new_op(IrcOp::Nick(new_nick)).await
+}
+
+async fn handle_priv_cmd_reload(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
+    // *** Try reloading all runtime configs ***
+    error!("*** RELOADING CONFIG ***");
+    let nick = bot.state.lock().await.msg_nick.to_string();
+    match bot.clone().reload().await {
+        Ok(ret) => {
+            bot.new_msg(&nick, "*** Reload successful.").await?;
+            Ok(ret)
+        }
+        Err(e) => {
+            bot.new_msg(&nick, &format!("*** Reload failed: {}", e)).await?;
+            Err(e)
+        }
+    }
+}
+
+async fn handle_priv_cmd_say(bot: Arc<IrcBot>, _: String, _: String, say: String) -> anyhow::Result<bool> {
+    if say.starts_with('#')
+        // channel was specified
+        && let Some((channel, msg)) = say.split_once(' ')
+    {
+        bot.new_msg(channel, msg).await?;
+        return Ok(true);
+    }
+
+    // use the configured (default) channel name
+    let cfg_channel = bot.config.lock().await.channel.clone();
+    bot.new_msg(&cfg_channel, &say).await
 }
 
 // EOF
