@@ -387,7 +387,7 @@ impl IrcBot {
 
     pub async fn new_msg(self: Arc<Self>, target: &str, msg: &str) -> anyhow::Result<bool> {
         let (target_s, msg_s) = (target.to_string(), msg.to_string());
-        let my_nick = &self.state.lock().await.my_nick;
+        let my_nick = self.state.lock().await.my_nick.clone();
         info!("{target_s} <{my_nick}> {msg_s}");
         self.state.lock().await.msg_sender.send(IrcMsg {
             target: target_s,
