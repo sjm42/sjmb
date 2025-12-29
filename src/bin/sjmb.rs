@@ -94,8 +94,14 @@ async fn handle_join(bot: Arc<IrcBot>, cmd: Command) -> anyhow::Result<bool> {
 }
 
 async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
-    let nick = &bot.state.lock().await.msg_nick;
-    let userhost = &bot.state.lock().await.msg_userhost;
+    let (nick, userhost, channel) = {
+        let (state, config) = (bot.state.lock().await, bot.config.lock().await);
+        (
+            state.msg_nick.clone(),
+            state.msg_userhost.clone(),
+            config.channel.clone(),
+        )
+    };
 
     let acl_resp_u = bot
         .config
@@ -104,7 +110,7 @@ async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: Strin
         .invite_bl_userhost_rt
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no invite_bl_userhost_rt"))?
-        .re_match(userhost);
+        .re_match(&userhost);
     if let Some((i, s)) = acl_resp_u {
         info!("ACL match userhost \"{userhost}\" at index {i}: {s}");
         info!("Userhost {userhost} is blacklisted. No invite today.");
@@ -118,22 +124,26 @@ async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: Strin
         .invite_bl_nick_rt
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no invite_bl_nick_rt"))?
-        .re_match(nick);
+        .re_match(&nick);
     if let Some((i, s)) = acl_resp_n {
         info!("ACL match nick \"{nick}\" at index {i}: {s}");
         info!("Nick {nick} is blacklisted. No invite today.");
         return Ok(true);
     }
 
-    let channel = bot.config.lock().await.channel.to_string();
     info!("Inviting {nick} to {channel}");
-    bot.clone().new_op(IrcOp::Invite(nick.into(), channel)).await
+    bot.clone().new_op(IrcOp::Invite(nick, channel)).await
 }
 
 async fn handle_open_cmd_mode_o(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
-    let nick = bot.state.lock().await.msg_nick.clone();
-    let userhost = bot.state.lock().await.msg_userhost.clone();
-    let channel = bot.config.lock().await.channel.clone();
+    let (nick, userhost, channel) = {
+        let (state, config) = (bot.state.lock().await, bot.config.lock().await);
+        (
+            state.msg_nick.clone(),
+            state.msg_userhost.clone(),
+            config.channel.clone(),
+        )
+    };
 
     let now1 = Utc::now();
     let acl_resp = bot
@@ -213,7 +223,7 @@ async fn handle_priv_cmd_nick(bot: Arc<IrcBot>, _: String, _: String, new_nick: 
 async fn handle_priv_cmd_reload(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
     // *** Try reloading all runtime configs ***
     error!("*** RELOADING CONFIG ***");
-    let nick = bot.state.lock().await.msg_nick.to_string();
+    let nick = bot.state.lock().await.msg_nick.clone();
     match bot.clone().reload().await {
         Ok(ret) => {
             bot.new_msg(&nick, "*** Reload successful.").await?;
