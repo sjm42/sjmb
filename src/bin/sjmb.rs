@@ -32,7 +32,7 @@ async fn bot_cmd_setup(bot: Arc<IrcBot>) -> anyhow::Result<()> {
     bot.register_irc_cmd(into_cmd_handler(handle_join)).await;
 
     // ### Register commands
-    let config = bot.config.lock().await;
+    let config = bot.config.read().await;
 
     // these can be used by anyone (open)
     bot.register_privmsg_open(&config.cmd_invite, into_msg_handler(handle_open_cmd_invite))
@@ -66,9 +66,9 @@ async fn handle_join(bot: Arc<IrcBot>, cmd: Command) -> anyhow::Result<bool> {
     };
 
     let (nick, userhost, my_nick, acl_resp) = {
-        let state = bot.state.lock().await;
-        let config = bot.config.lock().await;
+        let state = bot.state.read().await;
         let userhost = state.msg_userhost.clone();
+        let config = bot.config.read().await;
         let acl_resp = config
             .auto_o_acl_rt
             .as_ref()
@@ -95,7 +95,7 @@ async fn handle_join(bot: Arc<IrcBot>, cmd: Command) -> anyhow::Result<bool> {
 
 async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
     let (nick, userhost, channel) = {
-        let (state, config) = (bot.state.lock().await, bot.config.lock().await);
+        let (state, config) = (bot.state.read().await, bot.config.read().await);
         (
             state.msg_nick.clone(),
             state.msg_userhost.clone(),
@@ -105,7 +105,7 @@ async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: Strin
 
     let acl_resp_u = bot
         .config
-        .lock()
+        .read()
         .await
         .invite_bl_userhost_rt
         .as_ref()
@@ -119,7 +119,7 @@ async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: Strin
 
     let acl_resp_n = bot
         .config
-        .lock()
+        .read()
         .await
         .invite_bl_nick_rt
         .as_ref()
@@ -137,7 +137,7 @@ async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: Strin
 
 async fn handle_open_cmd_mode_o(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
     let (nick, userhost, channel) = {
-        let (state, config) = (bot.state.lock().await, bot.config.lock().await);
+        let (state, config) = (bot.state.read().await, bot.config.read().await);
         (
             state.msg_nick.clone(),
             state.msg_userhost.clone(),
@@ -148,7 +148,7 @@ async fn handle_open_cmd_mode_o(bot: Arc<IrcBot>, _: String, _: String, _: Strin
     let now1 = Utc::now();
     let acl_resp = bot
         .config
-        .lock()
+        .read()
         .await
         .mode_o_acl_rt
         .as_ref()
@@ -172,19 +172,19 @@ async fn handle_open_cmd_mode_o(bot: Arc<IrcBot>, _: String, _: String, _: Strin
 }
 
 async fn handle_open_cmd_mode_v(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
-    let nick = bot.state.lock().await.msg_nick.clone();
-    let channel = bot.config.lock().await.channel.clone();
+    let nick = bot.state.read().await.msg_nick.clone();
+    let channel = bot.config.read().await.channel.clone();
     bot.new_op(IrcOp::ModeVoice(channel, nick)).await
 }
 
 async fn handle_priv_cmd_dump_acl(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
     info!("Dumping ACLs");
-    let nick = bot.state.lock().await.msg_nick.clone();
+    let nick = bot.state.read().await.msg_nick.clone();
 
     bot.clone().new_msg(&nick, "My +o ACL:").await?;
     for s in &bot
         .config
-        .lock()
+        .read()
         .await
         .mode_o_acl_rt
         .as_ref()
@@ -198,7 +198,7 @@ async fn handle_priv_cmd_dump_acl(bot: Arc<IrcBot>, _: String, _: String, _: Str
     bot.clone().new_msg(&nick, "My auto +o ACL:").await?;
     for s in &bot
         .config
-        .lock()
+        .read()
         .await
         .auto_o_acl_rt
         .as_ref()
@@ -223,7 +223,7 @@ async fn handle_priv_cmd_nick(bot: Arc<IrcBot>, _: String, _: String, new_nick: 
 async fn handle_priv_cmd_reload(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
     // *** Try reloading all runtime configs ***
     error!("*** RELOADING CONFIG ***");
-    let nick = bot.state.lock().await.msg_nick.clone();
+    let nick = bot.state.read().await.msg_nick.clone();
     match bot.clone().reload().await {
         Ok(ret) => {
             bot.new_msg(&nick, "*** Reload successful.").await?;
@@ -246,7 +246,7 @@ async fn handle_priv_cmd_say(bot: Arc<IrcBot>, _: String, _: String, say: String
     }
 
     // use the configured (default) channel name
-    let cfg_channel = bot.config.lock().await.channel.clone();
+    let cfg_channel = bot.config.read().await.channel.clone();
     bot.new_msg(&cfg_channel, &say).await
 }
 

@@ -8,7 +8,7 @@ pub use irc::client::prelude::*;
 pub use regex::Regex;
 pub use serde::{Deserialize, Serialize};
 pub use tokio::{
-    sync::{mpsc, Mutex},
+    sync::{mpsc, RwLock},
     time::{sleep, Duration},
 };
 pub use tracing::*;

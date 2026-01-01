@@ -18,7 +18,7 @@ const IRC_MSG_THROTTLE: u64 = 1; // in seconds
 pub type CmdHandler = Box<dyn Fn(Arc<IrcBot>, Command) -> BoxFuture<'static, anyhow::Result<bool>>>;
 
 pub fn into_cmd_handler<Fut: Future<Output=anyhow::Result<bool>> + Send + 'static>(
-    f: impl Fn(Arc<IrcBot>, Command) -> Fut + 'static,
+    f: impl Fn(Arc<IrcBot>, Command) -> Fut + Send + 'static,
 ) -> CmdHandler {
     Box::new(move |bot, c| Box::pin(f(bot, c)))
 }
@@ -26,7 +26,7 @@ pub fn into_cmd_handler<Fut: Future<Output=anyhow::Result<bool>> + Send + 'stati
 pub type MsgHandler = Box<dyn Fn(Arc<IrcBot>, String, String, String) -> BoxFuture<'static, anyhow::Result<bool>>>;
 
 pub fn into_msg_handler<Fut: Future<Output=anyhow::Result<bool>> + Send + 'static>(
-    f: impl Fn(Arc<IrcBot>, String, String, String) -> Fut + 'static,
+    f: impl Fn(Arc<IrcBot>, String, String, String) -> Fut + Send + 'static,
 ) -> MsgHandler {
     Box::new(move |bot, a, b, c| Box::pin(f(bot, a, b, c)))
 }
@@ -196,11 +196,12 @@ pub struct BotState {
 }
 
 pub struct IrcBot {
-    pub cli_opts: Mutex<OptsCommon>,
-    pub config: Mutex<BotConfig>,
-    pub state: Mutex<BotState>,
-    pub handlers: Mutex<BotHandlers>,
+    pub cli_opts: RwLock<OptsCommon>,
+    pub config: RwLock<BotConfig>,
+    pub state: RwLock<BotState>,
+    pub handlers: RwLock<BotHandlers>,
 }
+
 unsafe impl Send for IrcBot {}
 unsafe impl Sync for IrcBot {}
 
@@ -241,9 +242,9 @@ impl IrcBot {
 
         Ok((
             IrcBot {
-                cli_opts: Mutex::new(opts.clone()),
-                config: Mutex::new(bot_cfg),
-                state: Mutex::new(BotState {
+                cli_opts: RwLock::new(opts.clone()),
+                config: RwLock::new(bot_cfg),
+                state: RwLock::new(BotState {
                     my_nick,
                     msg_nick: "NONE".into(),
                     msg_user: "NONE".into(),
@@ -253,7 +254,7 @@ impl IrcBot {
                     op_sender,
                     msg_sender,
                 }),
-                handlers: Mutex::new(BotHandlers {
+                handlers: RwLock::new(BotHandlers {
                     handlers_irc_cmd: Vec::with_capacity(INITIAL_HANDLERS),
                     handlers_privmsg_open: HashMap::with_capacity(INITIAL_HANDLERS),
                     handlers_privmsg_priv: HashMap::with_capacity(INITIAL_HANDLERS),
@@ -265,7 +266,7 @@ impl IrcBot {
     }
 
     pub async fn clear_handlers(&self) {
-        let mut handlers = self.handlers.lock().await;
+        let mut handlers = self.handlers.write().await;
         handlers.handlers_irc_cmd.clear();
         handlers.handlers_privmsg_open.clear();
         handlers.handlers_privmsg_priv.clear();
@@ -273,11 +274,11 @@ impl IrcBot {
     }
 
     pub async fn reload(&self) -> anyhow::Result<bool> {
-        let config_file = self.cli_opts.lock().await.bot_config.clone();
+        let config_file = self.cli_opts.read().await.bot_config.clone();
         match BotConfig::new(&config_file) {
             Ok(cfg) => {
                 info!("*** Reload successful.");
-                *self.config.lock().await = cfg;
+                *self.config.write().await = cfg;
                 Ok(true)
             }
             Err(e) => {
@@ -290,12 +291,12 @@ impl IrcBot {
     }
 
     pub async fn register_irc_cmd(&self, handler: CmdHandler) {
-        self.handlers.lock().await.handlers_irc_cmd.push(handler);
+        self.handlers.write().await.handlers_irc_cmd.push(handler);
     }
 
     pub async fn register_privmsg_priv(&self, cmd: &str, handler: MsgHandler) {
         self.handlers
-            .lock()
+            .write()
             .await
             .handlers_privmsg_priv
             .insert(cmd.to_string(), handler);
@@ -303,7 +304,7 @@ impl IrcBot {
 
     pub async fn register_privmsg_open(&self, cmd: &str, handler: MsgHandler) {
         self.handlers
-            .lock()
+            .write()
             .await
             .handlers_privmsg_open
             .insert(cmd.to_string(), handler);
@@ -311,7 +312,7 @@ impl IrcBot {
 
     pub async fn register_chanmsg(&self, cmd: &str, handler: MsgHandler) {
         self.handlers
-            .lock()
+            .write()
             .await
             .handlers_chanmsg
             .insert(cmd.to_string(), handler);
@@ -320,8 +321,6 @@ impl IrcBot {
     pub async fn run(self: Arc<Self>, mut stream: irc::client::ClientStream) -> anyhow::Result<()> {
         while let Some(message) = stream.next().await.transpose()? {
             trace!("Got msg: {message:?}");
-            let mut state = self.state.lock().await;
-            let my_nick = state.my_nick.clone();
 
             let (msg_nick, msg_user, msg_host) = if let Some(Prefix::Nickname(nick, user, host)) = message.prefix {
                 (nick, user, host)
@@ -329,13 +328,16 @@ impl IrcBot {
                 ("NONE".into(), "NONE".into(), "NONE".into())
             };
 
-            state.msg_nick = msg_nick.clone();
-            state.msg_user = msg_user.clone();
-            state.msg_host = msg_host.clone();
-            state.msg_userhost = format!("{msg_user}@{msg_host}");
-            drop(state);
+            let my_nick = {
+                let mut state = self.state.write().await;
+                state.msg_nick = msg_nick.clone();
+                state.msg_user = msg_user.clone();
+                state.msg_host = msg_host.clone();
+                state.msg_userhost = format!("{msg_user}@{msg_host}");
+                state.my_nick.clone()
+            };
 
-            for c in self.handlers.lock().await.handlers_irc_cmd.iter() {
+            for c in self.handlers.read().await.handlers_irc_cmd.iter() {
                 if let Ok(true) = c(self.clone(), message.command.clone()).await {
                     break;
                 }
@@ -365,7 +367,7 @@ impl IrcBot {
                     debug!("NICK: {msg_nick} USER: {msg_user} HOST: {msg_host} NEW NICK: {new_nick}");
                     if msg_nick == *my_nick {
                         info!("My NEW nick: {new_nick}");
-                        self.state.lock().await.my_nick = new_nick;
+                        self.state.write().await.my_nick = new_nick;
                     }
                 }
 
@@ -380,16 +382,16 @@ impl IrcBot {
 
     pub async fn new_op(self: Arc<Self>, op: IrcOp) -> anyhow::Result<bool> {
         debug!("new_op({op:?})");
-        self.state.lock().await.op_sender.send(op)?;
+        self.state.read().await.op_sender.send(op)?;
         debug!("new_op sent to queue");
         Ok(true)
     }
 
     pub async fn new_msg(self: Arc<Self>, target: &str, msg: &str) -> anyhow::Result<bool> {
         let (target_s, msg_s) = (target.to_string(), msg.to_string());
-        let my_nick = self.state.lock().await.my_nick.clone();
+        let my_nick = self.state.read().await.my_nick.clone();
         info!("{target_s} <{my_nick}> {msg_s}");
-        self.state.lock().await.msg_sender.send(IrcMsg {
+        self.state.read().await.msg_sender.send(IrcMsg {
             target: target_s,
             msg: msg_s,
         })?;
@@ -398,11 +400,11 @@ impl IrcBot {
 
     // Process private messages here and return true only if something was reacted upon
     async fn handle_privmsg(self: Arc<Self>, msg: String, cmd: String, args: String) -> anyhow::Result<bool> {
-        let nick = self.state.lock().await.msg_nick.clone();
-        let userhost = &self.state.lock().await.msg_userhost.clone();
+        let nick = self.state.read().await.msg_nick.clone();
+        let userhost = &self.state.read().await.msg_userhost.clone();
         info!("*** Privmsg from {nick} ({userhost}): {cmd} {args}");
 
-        let nick_is_privileged = matches!(self.config.lock().await.privileged_nicks.get(&nick), Some(true));
+        let nick_is_privileged = matches!(self.config.read().await.privileged_nicks.get(&nick), Some(true));
 
         if nick_is_privileged
             // Handle privileged commands
@@ -424,7 +426,7 @@ impl IrcBot {
 
     // Process privileged commands here and return true only if something was reacted upon
     async fn handle_privmsg_priv(self: Arc<Self>, msg: String, cmd: String, args: String) -> anyhow::Result<bool> {
-        match self.handlers.lock().await.handlers_privmsg_priv.get(&cmd) {
+        match self.handlers.read().await.handlers_privmsg_priv.get(&cmd) {
             Some(handler) => handler(self.clone(), msg, cmd, args).await,
             _ => Ok(false), // did not recognize any command
         }
@@ -432,7 +434,7 @@ impl IrcBot {
 
     // Process "public" commands here and return true only if something was reacted upon
     async fn handle_privmsg_open(self: Arc<Self>, msg: String, cmd: String, args: String) -> anyhow::Result<bool> {
-        match self.handlers.lock().await.handlers_privmsg_open.get(&cmd) {
+        match self.handlers.read().await.handlers_privmsg_open.get(&cmd) {
             Some(handler) => handler(self.clone(), msg, cmd, args).await,
             _ => Ok(false), // did not recognize any command
         }
@@ -446,14 +448,14 @@ impl IrcBot {
         cmd: String,
         args: String,
     ) -> anyhow::Result<bool> {
-        let nick = self.state.lock().await.msg_nick.clone();
+        let nick = self.state.read().await.msg_nick.clone();
         debug!("{channel} <{nick}> {cmd} {args}");
 
-        if let Some(handler) = self.handlers.lock().await.handlers_chanmsg.get(&cmd) {
+        if let Some(handler) = self.handlers.read().await.handlers_chanmsg.get(&cmd) {
             return handler(self.clone(), msg, cmd, args).await;
         }
 
-        let cfg = self.config.lock().await;
+        let cfg = self.config.read().await;
 
         // url_cmd starts with '!'
         if let (Some(u_cmd), Some(true)) = (cmd.strip_prefix('!'), get_wild(&cfg.url_cmd_channels, &channel))
