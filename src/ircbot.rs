@@ -7,13 +7,10 @@ use tera::Tera;
 use crate::*;
 
 const INITIAL_HANDLERS: usize = 8;
-const IRC_OP_THROTTLE: u64 = 2;
-// in seconds
-const IRC_MSG_THROTTLE: u64 = 1; // in seconds
 
-// moving to async...
-// pub type IrcCmdHandler = fn(&IrcBot, &irc::proto::Command) -> anyhow::Result<bool>;
-// pub type MsgHandler = fn(&mut IrcBot, &str, &str, &str) -> anyhow::Result<bool>;
+// in milliseconds
+const IRC_OP_THROTTLE: u64 = 2500;
+const IRC_MSG_THROTTLE: u64 = 1500;
 
 pub type CmdHandler = Box<dyn Fn(Arc<IrcBot>, Command) -> BoxFuture<'static, anyhow::Result<bool>>>;
 
@@ -580,7 +577,7 @@ async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: mpsc::UnboundedReceiver
         if let Err(e) = irc_sender.send_privmsg(target, msg) {
             error!("{e}");
         }
-        sleep(Duration::from_secs(IRC_MSG_THROTTLE)).await;
+        sleep(Duration::from_millis(IRC_MSG_THROTTLE)).await;
     }
 }
 
@@ -592,7 +589,7 @@ async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: mpsc::UnboundedReceiver<
         if let Err(e) = res {
             error!("{e}");
         }
-        sleep(Duration::from_secs(IRC_OP_THROTTLE)).await;
+        sleep(Duration::from_millis(IRC_OP_THROTTLE)).await;
     }
 }
 
