@@ -180,34 +180,35 @@ async fn handle_open_cmd_mode_v(bot: Arc<IrcBot>, _: String, _: String, _: Strin
 async fn handle_priv_cmd_dump_acl(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
     info!("Dumping ACLs");
     let nick = bot.state.read().await.msg_nick.clone();
+    let staged_msgs = {
+        let config = bot.config.read().await;
+        let mode_o_acl = config
+            .mode_o_acl_rt
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
+            .acl_str
+            .clone();
+        let auto_o_acl = config
+            .auto_o_acl_rt
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
+            .acl_str
+            .clone();
 
-    bot.clone().new_msg(&nick, "My +o ACL:").await?;
-    for s in &bot
-        .config
-        .read()
-        .await
-        .mode_o_acl_rt
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
-        .acl_str
-    {
-        bot.clone().new_msg(&nick, s).await?;
-    }
-    bot.clone().new_msg(&nick, "<EOF>").await?;
+        let mut staged_msgs = Vec::with_capacity(mode_o_acl.len() + auto_o_acl.len() + 4);
+        staged_msgs.push("My +o ACL:".to_string());
+        staged_msgs.extend(mode_o_acl);
+        staged_msgs.push("<EOF>".to_string());
+        staged_msgs.push("My auto +o ACL:".to_string());
+        staged_msgs.extend(auto_o_acl);
+        staged_msgs.push("<EOF>".to_string());
+        staged_msgs
+    };
 
-    bot.clone().new_msg(&nick, "My auto +o ACL:").await?;
-    for s in &bot
-        .config
-        .read()
-        .await
-        .auto_o_acl_rt
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
-        .acl_str
-    {
-        bot.clone().new_msg(&nick, s).await?;
+    for staged_msg in staged_msgs {
+        bot.clone().new_msg(&nick, &staged_msg).await?;
     }
-    bot.new_msg(&nick, "<EOF>").await
+    Ok(true)
 }
 
 async fn handle_priv_cmd_join(bot: Arc<IrcBot>, _: String, _: String, new_chan: String) -> anyhow::Result<bool> {

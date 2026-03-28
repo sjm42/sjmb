@@ -11,10 +11,12 @@ const INITIAL_HANDLERS: usize = 8;
 // in milliseconds
 const IRC_OP_THROTTLE: u64 = 2500;
 const IRC_MSG_THROTTLE: u64 = 1500;
+const IRC_QUEUE_CAPACITY: usize = 42;
+const IRC_QUEUE_SEND_TIMEOUT: u64 = 5000;
 
 pub type CmdHandler = Box<dyn Fn(Arc<IrcBot>, Command) -> BoxFuture<'static, anyhow::Result<bool>>>;
 
-pub fn into_cmd_handler<Fut: Future<Output=anyhow::Result<bool>> + Send + 'static>(
+pub fn into_cmd_handler<Fut: Future<Output = anyhow::Result<bool>> + Send + 'static>(
     f: impl Fn(Arc<IrcBot>, Command) -> Fut + Send + 'static,
 ) -> CmdHandler {
     Box::new(move |bot, c| Box::pin(f(bot, c)))
@@ -22,7 +24,7 @@ pub fn into_cmd_handler<Fut: Future<Output=anyhow::Result<bool>> + Send + 'stati
 
 pub type MsgHandler = Box<dyn Fn(Arc<IrcBot>, String, String, String) -> BoxFuture<'static, anyhow::Result<bool>>>;
 
-pub fn into_msg_handler<Fut: Future<Output=anyhow::Result<bool>> + Send + 'static>(
+pub fn into_msg_handler<Fut: Future<Output = anyhow::Result<bool>> + Send + 'static>(
     f: impl Fn(Arc<IrcBot>, String, String, String) -> Fut + Send + 'static,
 ) -> MsgHandler {
     Box::new(move |bot, a, b, c| Box::pin(f(bot, a, b, c)))
@@ -45,6 +47,12 @@ pub enum IrcOp {
 struct IrcMsg {
     target: String,
     msg: String,
+}
+
+#[derive(Debug, Clone)]
+enum QueuedAction {
+    Msg(IrcMsg),
+    Op(IrcOp),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -188,8 +196,8 @@ pub struct BotState {
     pub msg_host: String,
     pub msg_userhost: String,
 
-    op_sender: mpsc::UnboundedSender<IrcOp>,
-    msg_sender: mpsc::UnboundedSender<IrcMsg>,
+    op_sender: mpsc::Sender<IrcOp>,
+    msg_sender: mpsc::Sender<IrcMsg>,
 }
 
 pub struct IrcBot {
@@ -225,13 +233,13 @@ impl IrcBot {
         let irc_sender1 = Arc::new(irc.sender());
         let irc_sender2 = irc_sender1.clone();
 
-        let (op_sender, op_rx) = mpsc::unbounded_channel::<IrcOp>();
+        let (op_sender, op_rx) = mpsc::channel::<IrcOp>(IRC_QUEUE_CAPACITY);
         tokio::spawn(async move {
             debug!("Starting op queue receiver");
             read_op_queue(irc_sender1, op_rx).await;
         });
 
-        let (msg_sender, msg_rx) = mpsc::unbounded_channel::<IrcMsg>();
+        let (msg_sender, msg_rx) = mpsc::channel::<IrcMsg>(IRC_QUEUE_CAPACITY);
         tokio::spawn(async move {
             debug!("Starting msg queue receiver");
             read_msg_queue(irc_sender2, msg_rx).await;
@@ -280,7 +288,7 @@ impl IrcBot {
             }
             Err(e) => {
                 error!("*** Reload failed.");
-                let msg = format!("Could not parse runtime config {config_file}: {e}", );
+                let msg = format!("Could not parse runtime config {config_file}: {e}",);
                 error!("{msg}");
                 Err(anyhow!(msg))
             }
@@ -379,19 +387,28 @@ impl IrcBot {
 
     pub async fn new_op(self: Arc<Self>, op: IrcOp) -> anyhow::Result<bool> {
         debug!("new_op({op:?})");
-        self.state.read().await.op_sender.send(op)?;
+        let sender = self.state.read().await.op_sender.clone();
+        queue_send(&sender, op, "op").await?;
         debug!("new_op sent to queue");
         Ok(true)
     }
 
     pub async fn new_msg(self: Arc<Self>, target: &str, msg: &str) -> anyhow::Result<bool> {
         let (target_s, msg_s) = (target.to_string(), msg.to_string());
-        let my_nick = self.state.read().await.my_nick.clone();
+        let (my_nick, sender) = {
+            let state = self.state.read().await;
+            (state.my_nick.clone(), state.msg_sender.clone())
+        };
         info!("{target_s} <{my_nick}> {msg_s}");
-        self.state.read().await.msg_sender.send(IrcMsg {
-            target: target_s,
-            msg: msg_s,
-        })?;
+        queue_send(
+            &sender,
+            IrcMsg {
+                target: target_s,
+                msg: msg_s,
+            },
+            "msg",
+        )
+        .await?;
         Ok(true)
     }
 
@@ -452,115 +469,118 @@ impl IrcBot {
             return handler(self.clone(), msg, cmd, args).await;
         }
 
-        let cfg = self.config.read().await;
+        let (handled, queued_actions) = {
+            let cfg = self.config.read().await;
+            let mut queued_actions = Vec::new();
 
-        // url_cmd starts with '!'
-        if let (Some(u_cmd), Some(true)) = (cmd.strip_prefix('!'), get_wild(&cfg.url_cmd_channels, &channel))
-            && let Some(c) = cfg.url_cmd_list.get(u_cmd)
-        {
-            // phew we found an url command to execute!
+            // url_cmd starts with '!'
+            if let (Some(u_cmd), Some(true)) = (cmd.strip_prefix('!'), get_wild(&cfg.url_cmd_channels, &channel))
+                && let Some(c) = cfg.url_cmd_list.get(u_cmd)
+            {
+                let u_args = args.split_whitespace().collect::<Vec<&str>>();
+                debug!("Url cmd ctx arg: {args:?}");
+                debug!("Url cmd ctx args: {u_args:?}");
 
-            let u_args = args.split_whitespace().collect::<Vec<&str>>();
-            debug!("Url cmd ctx arg: {args:?}");
-            debug!("Url cmd ctx args: {u_args:?}");
+                let mut ctx = tera::Context::new();
+                ctx.insert("arg", &args);
+                ctx.insert("args", &u_args);
+                debug!("Url cmd ctx: {ctx:#?}");
 
-            // render URL to retrieve
-            let mut ctx = tera::Context::new();
-            ctx.insert("arg", &args);
-            ctx.insert("args", &u_args);
-            debug!("Url cmd ctx: {ctx:#?}");
+                let url = cfg
+                    .url_cmd_tera
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("No tera"))?
+                    .render(u_cmd, &ctx)?;
+                info!("URL cmd: !{u_cmd} --> {url}");
+                let f = c
+                    .output_filter_re
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("No output regex"))?
+                    .clone();
+                queued_actions.push(QueuedAction::Op(IrcOp::UrlFetch(url, channel.to_string(), f)));
+                (true, queued_actions)
+            } else {
+                let mut found_url = false;
+                'outer: for url_cap in cfg
+                    .url_re
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("No url_regex_re"))?
+                    .captures_iter(msg.as_ref())
+                {
+                    found_url = true;
+                    let url_s = url_cap[1].to_string();
+                    info!("*** ({nick} at {channel}) detected url: {url_s}");
 
-            let url = cfg
-                .url_cmd_tera
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("No tera"))?
-                .render(u_cmd, &ctx)?;
-            info!("URL cmd: !{u_cmd} --> {url}");
-            let f = c
-                .output_filter_re
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("No output regex"))?
-                .clone();
-            self.clone()
-                .new_op(IrcOp::UrlFetch(url, channel.to_string(), f))
-                .await?;
-            return Ok(true);
-        }
+                    for b in &cfg.url_blacklist {
+                        if url_s.starts_with(b) {
+                            info!("*** Blacklilsted URL. Ignored.");
+                            continue 'outer;
+                        }
+                    }
 
-        let mut found_url = false;
-        'outer: for url_cap in cfg
-            .url_re
-            .as_ref()
-            .ok_or_else(|| anyhow!("No url_regex_re"))?
-            .captures_iter(msg.as_ref())
-        {
-            found_url = true;
-            let url_s = url_cap[1].to_string();
-            info!("*** ({nick} at {channel}) detected url: {url_s}");
+                    if let Some(true) = get_wild(&cfg.url_log_channels, &channel) {
+                        let db = cfg.url_log_db.clone();
 
-            for b in &cfg.url_blacklist {
-                if url_s.starts_with(b) {
-                    info!("*** Blacklilsted URL. Ignored.");
-                    continue 'outer;
-                }
-            }
+                        if let Some(true) = get_wild(&cfg.url_dup_complain_channels, &channel) {
+                            let expire_days = get_wild(&cfg.url_dup_expire_days, &channel).unwrap_or(&7);
+                            let tz = get_wild(cfg.url_dup_tz.as_ref().unwrap(), &channel).unwrap_or(&Tz::UTC);
+                            queued_actions.push(QueuedAction::Op(IrcOp::UrlCheck(
+                                db.clone(),
+                                url_s.clone(),
+                                channel.to_owned(),
+                                tz.to_owned(),
+                                expire_days.to_owned(),
+                            )));
+                        }
 
-            // Are we supposed to log urls on this channel?
-            if let Some(true) = get_wild(&cfg.url_log_channels, &channel) {
-                let db = cfg.url_log_db.clone();
-
-                // Are we supposed to complain about duplicate urls on this channel?
-                if let Some(true) = get_wild(&cfg.url_dup_complain_channels, &channel) {
-                    let expire_days = get_wild(&cfg.url_dup_expire_days, &channel).unwrap_or(&7);
-                    // Which timezone does this channel want? Defaulting to UTC.
-                    let tz = get_wild(cfg.url_dup_tz.as_ref().unwrap(), &channel).unwrap_or(&Tz::UTC);
-                    self.clone()
-                        .new_op(IrcOp::UrlCheck(
-                            db.clone(),
+                        let op = IrcOp::UrlLog(
+                            db,
                             url_s.clone(),
                             channel.to_owned(),
-                            tz.to_owned(),
-                            expire_days.to_owned(),
-                        ))
-                        .await?;
+                            nick.to_owned(),
+                            Utc::now().timestamp(),
+                        );
+                        debug!("New op: {op:?}");
+                        queued_actions.push(QueuedAction::Op(op));
+                    }
+
+                    if let Some(true) = get_wild(&cfg.url_fetch_channels, &channel) {
+                        queued_actions.push(QueuedAction::Op(IrcOp::UrlTitle(url_s.clone(), channel.to_owned())));
+                    }
+
+                    if let Some(true) = get_wild(&cfg.url_mut_channels, &channel)
+                        && let Some((_i, new_url)) = cfg
+                            .url_mut_re
+                            .as_ref()
+                            .ok_or_else(|| anyhow!("No url_mut_re"))?
+                            .re_mut(&url_s)
+                    {
+                        debug!("Doing url mut");
+                        queued_actions.push(QueuedAction::Msg(IrcMsg {
+                            target: channel.clone(),
+                            msg: new_url.clone(),
+                        }));
+                        queued_actions.push(QueuedAction::Op(IrcOp::UrlTitle(new_url, channel.to_string())));
+                    }
                 }
 
-                let op = IrcOp::UrlLog(
-                    db,
-                    url_s.clone(),
-                    channel.to_owned(),
-                    nick.to_owned(),
-                    Utc::now().timestamp(),
-                );
-                debug!("New op: {op:?}");
-                self.clone().new_op(op).await?;
+                (found_url, queued_actions)
             }
+        };
 
-            // Are we supposed to detect urls and show titles on this channel?
-            if let Some(true) = get_wild(&cfg.url_fetch_channels, &channel) {
-                self.clone()
-                    .new_op(IrcOp::UrlTitle(url_s.clone(), channel.to_owned()))
-                    .await?;
-            }
-
-            // Are we supposed to mutate some urls on this channel?
-            if let Some(true) = get_wild(&cfg.url_mut_channels, &channel)
-                && let Some((_i, new_url)) = cfg
-                .url_mut_re
-                .as_ref()
-                .ok_or_else(|| anyhow!("No url_mut_re"))?
-                .re_mut(&url_s)
-            {
-                debug!("Doing url mut");
-                self.clone().new_msg(&channel, new_url.as_str()).await?;
-                self.clone()
-                    .new_op(IrcOp::UrlTitle(new_url, channel.to_string()))
-                    .await?;
+        for queued_action in queued_actions {
+            match queued_action {
+                QueuedAction::Msg(queued_msg) => {
+                    self.clone().new_msg(&queued_msg.target, &queued_msg.msg).await?;
+                }
+                QueuedAction::Op(queued_op) => {
+                    self.clone().new_op(queued_op).await?;
+                }
             }
         }
 
         // more processing might happen here
-        if found_url {
+        if handled {
             return Ok(true);
         }
         // ...or here
@@ -570,7 +590,7 @@ impl IrcBot {
 }
 
 // We are throttling messages here
-async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: mpsc::UnboundedReceiver<IrcMsg>) {
+async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: mpsc::Receiver<IrcMsg>) {
     while let Some(m) = rx.recv().await {
         debug!("read_msg_queue: new msg: {m:?}");
         let (target, msg) = (m.target, m.msg);
@@ -582,7 +602,7 @@ async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: mpsc::UnboundedReceiver
 }
 
 // We are throttling operations (mode/join/invite/nick etc) here
-async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: mpsc::UnboundedReceiver<IrcOp>) {
+async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: mpsc::Receiver<IrcOp>) {
     while let Some(op) = rx.recv().await {
         debug!("read_op_queue: new op: {op:?}");
         let res = op_dispatch(irc_sender.clone(), op).await;
@@ -590,6 +610,32 @@ async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: mpsc::UnboundedReceiver<
             error!("{e}");
         }
         sleep(Duration::from_millis(IRC_OP_THROTTLE)).await;
+    }
+}
+
+async fn queue_send<T>(sender: &mpsc::Sender<T>, mut item: T, kind: &str) -> anyhow::Result<()>
+where
+    T: std::fmt::Debug,
+{
+    loop {
+        match sender
+            .send_timeout(item, Duration::from_millis(IRC_QUEUE_SEND_TIMEOUT))
+            .await
+        {
+            Ok(()) => return Ok(()),
+            Err(mpsc::error::SendTimeoutError::Timeout(queued_item)) => {
+                error!(
+                    "{kind} queue full for {} ms, retrying send: {queued_item:?}",
+                    IRC_QUEUE_SEND_TIMEOUT
+                );
+                item = queued_item;
+            }
+            Err(mpsc::error::SendTimeoutError::Closed(queued_item)) => {
+                let msg = format!("{kind} queue closed while sending {queued_item:?}");
+                error!("{msg}");
+                return Err(anyhow!(msg));
+            }
+        }
     }
 }
 
