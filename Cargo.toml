@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.10.6"
+version = "1.10.7"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -29,14 +29,13 @@ reqwest = { version = "0.13", default-features = false, features = [
     "http2",
     "json",
     "rustls",
-    "hickory-dns",
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shellexpand = { version = "3", features = ["full"] }
 # do not enable TLS support for SQLx or connections will just hang
 # sjm 2025-07-28
-sqlx = { version = "0", features = [
+sqlx = { version = "0", default-features = false, features = [
     "macros",
     "migrate",
     "runtime-tokio",

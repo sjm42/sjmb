@@ -78,7 +78,6 @@ pub async fn get_body(url_s: &str) -> anyhow::Result<(String, String)> {
             env!("CARGO_PKG_VERSION")
         ))
         .use_rustls_tls()
-        .danger_accept_invalid_certs(true)
         .build()?;
 
     let resp = c.get(url).send().await?.error_for_status()?;

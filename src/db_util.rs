@@ -1,12 +1,14 @@
 // db_util.rs
 
+use anyhow::Context;
 use futures::TryStreamExt;
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, postgres::PgPoolOptions};
 
 use crate::*;
 
 const RETRY_CNT: usize = 5;
 const RETRY_SLEEP: u64 = 1;
+const DB_MAX_CONNECTIONS: u32 = 4;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct DbUrl {
@@ -17,10 +19,18 @@ pub struct DbUrl {
     pub url: String,
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct DbCtx {
     pub dbc: Pool<Postgres>,
     pub update_change: bool,
+}
+
+impl std::fmt::Debug for DbCtx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DbCtx")
+            .field("update_change", &self.update_change)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]
@@ -35,13 +45,16 @@ pub async fn start_db<S>(db_url: S) -> anyhow::Result<DbCtx>
 where
     S: AsRef<str>,
 {
-    debug!("start_db(): connecting");
-    let dbc = sqlx::PgPool::connect(db_url.as_ref()).await?;
+    debug!("start_db(): creating pool");
+    let dbc = PgPoolOptions::new()
+        .max_connections(DB_MAX_CONNECTIONS)
+        .connect(db_url.as_ref())
+        .await?;
     let db = DbCtx {
         dbc,
         update_change: true,
     };
-    debug!("start_db(): connected");
+    debug!("start_db(): pool created");
     Ok(db)
 }
 
@@ -60,41 +73,49 @@ const SQL_INSERT_URL: &str = "insert into url (seen, channel, nick, url) \
 
 pub async fn db_add_url(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
     debug!("db_add_url({ur:?})");
-    let mut rowcnt = 0;
-    let mut retry = 0;
-    while retry < RETRY_CNT {
-        match sqlx::query(SQL_INSERT_URL)
-            .bind(ur.ts)
-            .bind(&ur.chan)
-            .bind(&ur.nick)
-            .bind(&ur.url)
-            .execute(&db.dbc)
-            .await
-        {
-            Ok(res) => {
-                info!("Insert result: {res:#?}");
-                retry = 0;
-                rowcnt = res.rows_affected();
-                break;
+    for attempt in 1..=RETRY_CNT {
+        match db_add_url_once(db, ur).await {
+            Ok(rowcnt) => {
+                info!("db_add_url: Ok({rowcnt})");
+                return Ok(rowcnt);
+            }
+            Err(e) if attempt == RETRY_CNT => {
+                return Err(e)
+                    .with_context(|| format!("URL insert failed after {RETRY_CNT} attempts for channel {}", ur.chan));
             }
             Err(e) => {
-                error!("Insert failed: {e:?}");
+                warn!(
+                    "URL insert attempt {attempt}/{RETRY_CNT} failed for channel {}: {e:#}",
+                    ur.chan
+                );
+                sleep(Duration::new(RETRY_SLEEP, 0)).await;
             }
         }
-
-        // this is stupid but was sometimes necessary with SQLite
-        error!("Retrying in {}s...", RETRY_SLEEP);
-        sleep(Duration::new(RETRY_SLEEP, 0)).await;
-        retry += 1;
     }
+
+    unreachable!("retry loop always returns");
+}
+
+async fn db_add_url_once(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
+    let mut tx = db.dbc.begin().await?;
+
+    let res = sqlx::query(SQL_INSERT_URL)
+        .bind(ur.ts)
+        .bind(&ur.chan)
+        .bind(&ur.nick)
+        .bind(&ur.url)
+        .execute(&mut *tx)
+        .await?;
+
+    let rowcnt = res.rows_affected();
     if db.update_change {
-        db_mark_change(&db.dbc).await?;
-    }
-    if retry >= RETRY_CNT {
-        error!("GAVE UP after {RETRY_CNT} retries.");
+        sqlx::query(SQL_UPDATE_CHANGE)
+            .bind(Utc::now().timestamp())
+            .execute(&mut *tx)
+            .await?;
     }
 
-    info!("db_add_url: Ok({rowcnt})");
+    tx.commit().await?;
     Ok(rowcnt)
 }
 

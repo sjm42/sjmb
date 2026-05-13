@@ -37,9 +37,9 @@ pub enum IrcOp {
     Invite(String, String),
     Nick(String),
     Join(String),
-    UrlCheck(String, String, String, Tz, i64),
+    UrlCheck(DbCtx, String, String, Tz, i64),
     UrlTitle(String, String),
-    UrlLog(String, String, String, String, i64),
+    UrlLog(DbCtx, String, String, String, i64),
     UrlFetch(String, String, Regex),
 }
 
@@ -126,6 +126,8 @@ pub struct BotConfig {
     pub url_mut_re: Option<ReMut>,
     #[serde(skip)]
     pub url_dup_tz: Option<HashMap<String, Tz>>,
+    #[serde(skip)]
+    pub db: Option<DbCtx>,
 }
 impl BotConfig {
     pub fn new(config_file: &str) -> anyhow::Result<Self> {
@@ -212,12 +214,13 @@ unsafe impl Sync for IrcBot {}
 
 impl IrcBot {
     pub async fn new(opts: &OptsCommon) -> anyhow::Result<(Self, irc::client::ClientStream)> {
-        let bot_cfg = match BotConfig::new(&opts.bot_config) {
+        let mut bot_cfg = match BotConfig::new(&opts.bot_config) {
             Ok(b) => b,
             Err(e) => {
                 bail!("{e}");
             }
         };
+        bot_cfg.db = Some(start_db(&bot_cfg.url_log_db).await?);
 
         let mut irc = match Client::new(&opts.irc_config).await {
             Ok(c) => c,
@@ -281,7 +284,8 @@ impl IrcBot {
     pub async fn reload(&self) -> anyhow::Result<bool> {
         let config_file = self.cli_opts.read().await.bot_config.clone();
         match BotConfig::new(&config_file) {
-            Ok(cfg) => {
+            Ok(mut cfg) => {
+                cfg.db = Some(start_db(&cfg.url_log_db).await?);
                 info!("*** Reload successful.");
                 *self.config.write().await = cfg;
                 Ok(true)
@@ -519,7 +523,10 @@ impl IrcBot {
                     }
 
                     if let Some(true) = get_wild(&cfg.url_log_channels, &channel) {
-                        let db = cfg.url_log_db.clone();
+                        let db = cfg
+                            .db
+                            .clone()
+                            .ok_or_else(|| anyhow!("No database pool for URL logging"))?;
 
                         if let Some(true) = get_wild(&cfg.url_dup_complain_channels, &channel) {
                             let expire_days = get_wild(&cfg.url_dup_expire_days, &channel).unwrap_or(&7);
@@ -665,17 +672,14 @@ async fn op_dispatch(irc_sender: Arc<Sender>, op: IrcOp) -> anyhow::Result<()> {
 
 async fn op_handle_urlcheck(
     irc_sender: Arc<Sender>,
-    db: String,
+    db: DbCtx,
     url: String,
     channel: String,
     tz: Tz,
     exp_days: i64,
 ) -> anyhow::Result<()> {
     debug!("op_handle_urlcheck(): url {url}");
-    let dbc = start_db(&db).await?;
-    debug!("op_handle_urlcheck(): db connected");
-
-    if let Some(old) = db_check_url(&dbc, &url, &channel, exp_days * 86400).await?
+    if let Some(old) = db_check_url(&db, &url, &channel, exp_days * 86400).await?
         && let (Some(first), Some(last)) = (old.first, old.last)
     {
         let ts_first = DateTime::from_timestamp(first, 0)
@@ -720,12 +724,11 @@ async fn op_handle_urlfetch(
     Ok(())
 }
 
-async fn op_handle_urllog(db: String, url: String, chan: String, nick: String, ts: i64) -> anyhow::Result<()> {
+async fn op_handle_urllog(db: DbCtx, url: String, chan: String, nick: String, ts: i64) -> anyhow::Result<()> {
     debug!("op_handle_urllog(): insert url {url}");
-    let dbc = start_db(&db).await?;
     info!(
         "Urllog: inserted {} row(s)",
-        db_add_url(&dbc, &UrlCtx { ts, chan, nick, url },).await?
+        db_add_url(&db, &UrlCtx { ts, chan, nick, url },).await?
     );
     Ok(())
 }
