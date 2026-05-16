@@ -10,6 +10,7 @@ const INITIAL_HANDLERS: usize = 8;
 
 // in milliseconds
 const IRC_OP_THROTTLE: u64 = 2500;
+const IRC_OP_THROTTLE_JITTER: u64 = 1000;
 const IRC_MSG_THROTTLE: u64 = 1500;
 const IRC_QUEUE_CAPACITY: usize = 42;
 const IRC_QUEUE_SEND_TIMEOUT: u64 = 5000;
@@ -53,6 +54,183 @@ struct IrcMsg {
 enum QueuedAction {
     Msg(IrcMsg),
     Op(IrcOp),
+}
+
+#[derive(Debug, Clone, Default)]
+struct ChannelUserModes {
+    founder: bool,
+    admin: bool,
+    oper: bool,
+    halfop: bool,
+    voice: bool,
+}
+
+impl ChannelUserModes {
+    fn merge(&mut self, other: &Self) {
+        self.founder |= other.founder;
+        self.admin |= other.admin;
+        self.oper |= other.oper;
+        self.halfop |= other.halfop;
+        self.voice |= other.voice;
+    }
+
+    fn set(&mut self, mode: &ChannelMode, enabled: bool) {
+        match mode {
+            ChannelMode::Founder => self.founder = enabled,
+            ChannelMode::Admin => self.admin = enabled,
+            ChannelMode::Oper => self.oper = enabled,
+            ChannelMode::Halfop => self.halfop = enabled,
+            ChannelMode::Voice => self.voice = enabled,
+            _ => {}
+        }
+    }
+
+    fn set_prefix(&mut self, prefix: char) -> bool {
+        match prefix {
+            '~' => self.founder = true,
+            '&' => self.admin = true,
+            '@' => self.oper = true,
+            '%' => self.halfop = true,
+            '+' => self.voice = true,
+            _ => return false,
+        }
+        true
+    }
+}
+
+fn is_tracked_user_mode(mode: &ChannelMode) -> bool {
+    matches!(
+        mode,
+        ChannelMode::Founder | ChannelMode::Admin | ChannelMode::Oper | ChannelMode::Halfop | ChannelMode::Voice
+    )
+}
+
+#[derive(Debug, Default)]
+struct ChannelModes {
+    users: HashMap<String, HashMap<String, ChannelUserModes>>,
+}
+
+impl ChannelModes {
+    fn has_oper(&self, channel: &str, nick: &str) -> bool {
+        self.users
+            .get(channel)
+            .and_then(|users| users.get(nick))
+            .is_some_and(|modes| modes.oper)
+    }
+
+    fn mark_oper(&mut self, channel: &str, nick: &str) {
+        self.users
+            .entry(channel.to_string())
+            .or_default()
+            .entry(nick.to_string())
+            .or_default()
+            .oper = true;
+    }
+
+    fn join(&mut self, channel: &str, nick: &str) {
+        if nick.is_empty() || nick == "NONE" {
+            return;
+        }
+        self.users
+            .entry(channel.to_string())
+            .or_default()
+            .entry(nick.to_string())
+            .or_default();
+    }
+
+    fn part(&mut self, channel: &str, nick: &str, my_nick: &str) {
+        if nick == my_nick {
+            self.users.remove(channel);
+            return;
+        }
+        if let Some(users) = self.users.get_mut(channel) {
+            users.remove(nick);
+        }
+    }
+
+    fn kick(&mut self, channel: &str, nick: &str, my_nick: &str) {
+        if nick == my_nick {
+            self.users.remove(channel);
+            return;
+        }
+        if let Some(users) = self.users.get_mut(channel) {
+            users.remove(nick);
+        }
+    }
+
+    fn quit(&mut self, nick: &str) {
+        if nick.is_empty() || nick == "NONE" {
+            return;
+        }
+        for users in self.users.values_mut() {
+            users.remove(nick);
+        }
+    }
+
+    fn nick_change(&mut self, old_nick: &str, new_nick: &str) {
+        if old_nick.is_empty() || old_nick == "NONE" || new_nick.is_empty() {
+            return;
+        }
+        for users in self.users.values_mut() {
+            if let Some(modes) = users.remove(old_nick) {
+                users.insert(new_nick.to_string(), modes);
+            }
+        }
+    }
+
+    fn apply_modes(&mut self, channel: &str, modes: &[Mode<ChannelMode>]) {
+        for mode in modes {
+            match mode {
+                Mode::Plus(channel_mode, Some(nick)) if is_tracked_user_mode(channel_mode) => {
+                    self.users
+                        .entry(channel.to_string())
+                        .or_default()
+                        .entry(nick.to_string())
+                        .or_default()
+                        .set(channel_mode, true);
+                }
+                Mode::Minus(channel_mode, Some(nick)) if is_tracked_user_mode(channel_mode) => {
+                    if let Some(users) = self.users.get_mut(channel)
+                        && let Some(user_modes) = users.get_mut(nick)
+                    {
+                        user_modes.set(channel_mode, false);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn apply_namreply(&mut self, args: &[String]) {
+        if args.len() != 4 {
+            return;
+        }
+
+        let channel = &args[2];
+        let users = self.users.entry(channel.clone()).or_default();
+        for name in args[3].split_whitespace() {
+            let (nick, modes) = parse_namreply_user(name);
+            if nick.is_empty() {
+                continue;
+            }
+            users.entry(nick).or_default().merge(&modes);
+        }
+    }
+}
+
+fn parse_namreply_user(name: &str) -> (String, ChannelUserModes) {
+    let mut modes = ChannelUserModes::default();
+    let mut nick_start = 0;
+
+    for (i, c) in name.char_indices() {
+        if !modes.set_prefix(c) {
+            nick_start = i;
+            break;
+        }
+        nick_start = i + c.len_utf8();
+    }
+
+    (name[nick_start..].to_string(), modes)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -207,6 +385,7 @@ pub struct IrcBot {
     pub config: RwLock<BotConfig>,
     pub state: RwLock<BotState>,
     pub handlers: RwLock<BotHandlers>,
+    channel_modes: Arc<RwLock<ChannelModes>>,
 }
 
 unsafe impl Send for IrcBot {}
@@ -235,11 +414,13 @@ impl IrcBot {
         let my_nick = irc.current_nickname().to_string();
         let irc_sender1 = Arc::new(irc.sender());
         let irc_sender2 = irc_sender1.clone();
+        let channel_modes = Arc::new(RwLock::new(ChannelModes::default()));
+        let op_channel_modes = channel_modes.clone();
 
         let (op_sender, op_rx) = mpsc::channel::<IrcOp>(IRC_QUEUE_CAPACITY);
         tokio::spawn(async move {
             debug!("Starting op queue receiver");
-            read_op_queue(irc_sender1, op_rx).await;
+            read_op_queue(irc_sender1, op_channel_modes, op_rx).await;
         });
 
         let (msg_sender, msg_rx) = mpsc::channel::<IrcMsg>(IRC_QUEUE_CAPACITY);
@@ -268,6 +449,7 @@ impl IrcBot {
                     handlers_privmsg_priv: HashMap::with_capacity(INITIAL_HANDLERS),
                     handlers_chanmsg: HashMap::with_capacity(INITIAL_HANDLERS),
                 }),
+                channel_modes,
             },
             irc.stream()?,
         ))
@@ -346,6 +528,8 @@ impl IrcBot {
                 state.my_nick.clone()
             };
 
+            self.track_channel_modes(&message.command, &msg_nick, &my_nick).await;
+
             for c in self.handlers.read().await.handlers_irc_cmd.iter() {
                 if let Ok(true) = c(self.clone(), message.command.clone()).await {
                     break;
@@ -387,6 +571,20 @@ impl IrcBot {
         }
 
         Ok(())
+    }
+
+    async fn track_channel_modes(&self, cmd: &Command, msg_nick: &str, my_nick: &str) {
+        let mut channel_modes = self.channel_modes.write().await;
+        match cmd {
+            Command::JOIN(channel, _, _) => channel_modes.join(channel, msg_nick),
+            Command::PART(channel, _) => channel_modes.part(channel, msg_nick, my_nick),
+            Command::KICK(channel, nick, _) => channel_modes.kick(channel, nick, my_nick),
+            Command::QUIT(_) => channel_modes.quit(msg_nick),
+            Command::NICK(new_nick) => channel_modes.nick_change(msg_nick, new_nick),
+            Command::ChannelMODE(channel, modes) => channel_modes.apply_modes(channel, modes),
+            Command::Response(Response::RPL_NAMREPLY, args) => channel_modes.apply_namreply(args),
+            _ => {}
+        }
     }
 
     pub async fn new_op(self: Arc<Self>, op: IrcOp) -> anyhow::Result<bool> {
@@ -609,15 +807,43 @@ async fn read_msg_queue(irc_sender: Arc<Sender>, mut rx: mpsc::Receiver<IrcMsg>)
 }
 
 // We are throttling operations (mode/join/invite/nick etc) here
-async fn read_op_queue(irc_sender: Arc<Sender>, mut rx: mpsc::Receiver<IrcOp>) {
+async fn read_op_queue(
+    irc_sender: Arc<Sender>,
+    channel_modes: Arc<RwLock<ChannelModes>>,
+    mut rx: mpsc::Receiver<IrcOp>,
+) {
     while let Some(op) = rx.recv().await {
         debug!("read_op_queue: new op: {op:?}");
-        let res = op_dispatch(irc_sender.clone(), op).await;
-        if let Err(e) = res {
-            error!("{e}");
+
+        if let IrcOp::ModeOper(channel, nick) = &op
+            && channel_modes.read().await.has_oper(channel, nick)
+        {
+            info!("Skipping duplicate +o for {nick} on {channel}");
+            sleep_op_throttle().await;
+            continue;
         }
-        sleep(Duration::from_millis(IRC_OP_THROTTLE)).await;
+
+        let mark_oper = match &op {
+            IrcOp::ModeOper(channel, nick) => Some((channel.clone(), nick.clone())),
+            _ => None,
+        };
+
+        match op_dispatch(irc_sender.clone(), op).await {
+            Ok(()) => {
+                if let Some((channel, nick)) = mark_oper {
+                    channel_modes.write().await.mark_oper(&channel, &nick);
+                }
+            }
+            Err(e) => error!("{e}"),
+        }
+
+        sleep_op_throttle().await;
     }
+}
+
+async fn sleep_op_throttle() {
+    let throttle_ms = IRC_OP_THROTTLE + rand::random_range(0..=IRC_OP_THROTTLE_JITTER);
+    sleep(Duration::from_millis(throttle_ms)).await;
 }
 
 async fn queue_send<T>(sender: &mpsc::Sender<T>, mut item: T, kind: &str) -> anyhow::Result<()>
@@ -762,5 +988,36 @@ async fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: Strin
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn namreply_tracks_operator_prefix() {
+        let mut modes = ChannelModes::default();
+        modes.apply_namreply(&[
+            "sjmb".to_string(),
+            "=".to_string(),
+            "#test".to_string(),
+            "@alice +bob charlie".to_string(),
+        ]);
+
+        assert!(modes.has_oper("#test", "alice"));
+        assert!(!modes.has_oper("#test", "bob"));
+        assert!(!modes.has_oper("#test", "charlie"));
+    }
+
+    #[test]
+    fn mode_changes_update_operator_state() {
+        let mut modes = ChannelModes::default();
+        modes.join("#test", "alice");
+        modes.apply_modes("#test", &[Mode::Plus(ChannelMode::Oper, Some("alice".to_string()))]);
+        assert!(modes.has_oper("#test", "alice"));
+
+        modes.apply_modes("#test", &[Mode::Minus(ChannelMode::Oper, Some("alice".to_string()))]);
+        assert!(!modes.has_oper("#test", "alice"));
+    }
 }
 // EOF

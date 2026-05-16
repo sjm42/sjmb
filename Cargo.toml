@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.10.7"
+version = "1.11.0"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -21,6 +21,7 @@ clap = { version = "4", features = ["derive"] }
 futures = "0"
 irc = { version = "1.1", default-features = false, features = ["ctcp", "channel-lists", "toml_config", "encoding"] }
 regex = "1"
+rand = "0.10"
 reqwest = { version = "0.13", default-features = false, features = [
     "brotli",
     "charset",
