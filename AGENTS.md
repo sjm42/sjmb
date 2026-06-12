@@ -3,13 +3,13 @@
 ## Project Structure & Module Organization
 Core code lives in `src/`:
 - `src/bin/sjmb.rs`: binary entrypoint, CLI parsing, reconnect loop, command registration.
-- `src/ircbot.rs`: main bot runtime, config loading/reload, IRC message routing, URL handling, and throttled op/message queues.
+- `src/ircbot.rs`: main bot runtime, config loading/reload, IRC message routing, URL handling, channel-mode tracking, and throttled op/message queues.
 - `src/config.rs`: shared CLI options, default config paths, and tracing setup.
 - `src/db_util.rs`: PostgreSQL URL logging and duplicate-check queries.
 - `src/util.rs`: reusable helpers (regex ACL/mutation wrappers, HTTP fetch helpers, wildcard map lookup, timestamp formatting).
 - `src/lib.rs`: module exports and shared re-exports.
 
-Configuration examples are in `config/` (`irc.toml`, `sjmb.json`). Build metadata is injected by `build.rs`. Helper scripts live at the repo root (`build-mips`, `install.sh`).
+Configuration examples are in `config/` (`irc.toml`, `sjmb.json`). Build metadata is injected by `build.rs`. Helper scripts live at the repo root (`build-mips`, `install.sh`). The crate uses Rust 2024 edition.
 
 ## Build, Test, and Development Commands
 - `cargo build`: debug build for local development.
@@ -18,8 +18,9 @@ Configuration examples are in `config/` (`irc.toml`, `sjmb.json`). Build metadat
 - `cargo run --bin sjmb -- --help`: view CLI flags (`--bot-config`, `--irc-config`, log level flags).
 - `cargo check`: fast compile checks before committing.
 - `cargo clippy --all-targets --all-features`: lint pass.
-- `cargo test`: test/compile smoke pass; currently there are no committed tests, so this mostly verifies test targets still build.
+- `cargo test`: run the committed unit tests and verify test targets still build.
 - `cargo fmt`: format code (`rustfmt.toml` enforces `max_width = 120`).
+- `cargo outdated --root-deps-only`: check whether direct dependency updates are available.
 
 Optional cross-build: `./build-mips` (uses `cross` for `mipsel-unknown-linux-musl`).
 
@@ -29,7 +30,7 @@ Use standard Rust style (4-space indentation, snake_case for functions/variables
 Run `cargo fmt` before opening a PR. Use `cargo clippy` to catch correctness/style issues early.
 
 ## Testing Guidelines
-There is currently no `tests/` directory and no committed unit tests. For new logic, add focused unit tests near the module (`mod tests`) or integration tests under `tests/` when behavior crosses modules. Validate at minimum with:
+There is currently no `tests/` directory. Unit tests live next to the code they cover, for example the channel-mode tracking tests in `src/ircbot.rs`. For new logic, add focused unit tests near the module (`mod tests`) or integration tests under `tests/` when behavior crosses modules. Validate at minimum with:
 - `cargo check`
 - `cargo clippy --all-targets --all-features`
 - `cargo test`

@@ -1,6 +1,6 @@
 # sjmb
 
-A feature-rich IRC bot written in Rust.
+A reconnecting IRC bot written in Rust.
 
 ## Features
 
@@ -12,12 +12,13 @@ A feature-rich IRC bot written in Rust.
 - **URL mutation** — rewrites URLs via regex rules (e.g., Twitter → Nitter)
 - **Hot-reloadable config** — reload bot configuration without restarting
 - **Channel-specific behavior** — feature flags and duplicate-url settings support wildcard defaults with per-channel overrides
+- **Throttled IRC queues** — rate-limits outgoing mode changes and messages, including duplicate `+o` suppression from tracked channel state
 
 ## Configuration
 
 The bot uses two configuration files:
 
-- `irc.toml` — IRC connection: server, nick, channels
+- `irc.toml` — IRC connection: server, nick, channels, encoding, and IRC client throttling options
 - `sjmb.json` — bot settings: ACLs, PM commands, URL commands, channel feature flags, duplicate URL settings, URL mutations
 
 Default runtime paths are:
@@ -26,6 +27,9 @@ Default runtime paths are:
 - `--irc-config`: `$HOME/sjmb/config/irc.toml`
 
 See [`config/sjmb.json`](./config/sjmb.json) and [`config/irc.toml`](./config/irc.toml) for examples.
+
+Channel feature maps in `sjmb.json` support a `*` fallback entry plus per-channel overrides. URL duplicate reporting also
+uses per-channel expiry and timezone maps, with `UTC` as the example default.
 
 ## Running
 
@@ -44,6 +48,8 @@ cargo run --bin sjmb -- --verbose
 The bot will reconnect automatically after failures, reloading the process state on each start attempt. Runtime config
 can be reloaded with the configured private-message reload command.
 
+Logging defaults to errors only. Use `--verbose`, `--debug`, or `--trace` to increase log detail.
+
 ## Building
 
 Requires stable Rust (edition 2024). PostgreSQL is required if URL logging or duplicate URL checks are enabled in the
@@ -54,6 +60,12 @@ cargo check
 cargo clippy --all-targets --all-features
 cargo test
 cargo build --release
+```
+
+Run `cargo fmt` before committing. To check whether direct dependency updates are available, use:
+
+```bash
+cargo outdated --root-deps-only
 ```
 
 Additional build options:
