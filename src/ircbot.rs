@@ -2,7 +2,7 @@
 
 use chrono_tz::Tz;
 use futures::{future::BoxFuture, prelude::*};
-use tera::Tera;
+use tera::{Kwargs, State, Tera};
 
 use crate::*;
 
@@ -236,7 +236,7 @@ fn parse_namreply_user(name: &str) -> (String, ChannelUserModes) {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UrlCmd {
     pub url_tmpl: String,
-    // a Tera template string with {{arg}} if command needs an argument
+    // a Tera template string with `arg` and `args` in its context
     pub output_filter: String,
     #[serde(skip)]
     pub output_filter_re: Option<Regex>,
@@ -329,6 +329,8 @@ impl BotConfig {
 
         // prepare url-based commands, if any
         let mut tera = Tera::default();
+        // Tera 2 removed its built-in `slugify` filter. Keep existing bot templates compatible.
+        tera.register_filter("slugify", |value: &str, _: Kwargs, _: &State| slug::slugify(value));
         for (k, c) in config.url_cmd_list.iter_mut() {
             tera.add_raw_template(k, &c.url_tmpl)?;
             c.output_filter_re = Some(Regex::new(&c.output_filter)?);
@@ -1018,6 +1020,27 @@ mod tests {
 
         modes.apply_modes("#test", &[Mode::Minus(ChannelMode::Oper, Some("alice".to_string()))]);
         assert!(!modes.has_oper("#test", "alice"));
+    }
+
+    #[test]
+    fn example_url_templates_render_with_tera_2() {
+        let config_path = concat!(env!("CARGO_MANIFEST_DIR"), "/config/sjmb.json");
+        let config = BotConfig::new(config_path).expect("example bot config should load");
+        let tera = config
+            .url_cmd_tera
+            .expect("URL command templates should be initialized");
+        let args = vec!["Hélsinki!"];
+        let mut context = tera::Context::new();
+        context.insert("arg", "Hélsinki!");
+        context.insert("args", &args);
+
+        let url = tera
+            .render("metar_old", &context)
+            .expect("example URL template should render");
+        assert_eq!(
+            url,
+            "https://tgftp.nws.noaa.gov/data/observations/metar/stations/HELSINKI.TXT"
+        );
     }
 }
 // EOF

@@ -8,7 +8,7 @@ A reconnecting IRC bot written in Rust.
 - **Private-message commands** — configurable PM commands for invite, op, voice, join, nick, ACL dump, reload, and say
 - **URL title fetching** — detects URLs in channel messages and displays webpage titles
 - **Duplicate URL detection** — logs URLs to PostgreSQL and flags duplicates within a configurable time window
-- **URL commands** — template-based commands (using Tera) for fetching data from URLs (e.g., METAR/TAF weather reports)
+- **URL commands** — template-based commands (using Tera 2) for fetching data from URLs (e.g., METAR/TAF weather reports)
 - **URL mutation** — rewrites URLs via regex rules (e.g., Twitter → Nitter)
 - **Hot-reloadable config** — reload bot configuration without restarting
 - **Channel-specific behavior** — feature flags and duplicate-url settings support wildcard defaults with per-channel overrides
@@ -30,6 +30,9 @@ See [`config/sjmb.json`](./config/sjmb.json) and [`config/irc.toml`](./config/ir
 
 Channel feature maps in `sjmb.json` support a `*` fallback entry plus per-channel overrides. URL duplicate reporting also
 uses per-channel expiry and timezone maps, with `UTC` as the example default.
+
+URL command templates receive `arg` (the complete command argument string) and `args` (the whitespace-separated argument
+list). The Tera 1 `slugify` filter remains available as a compatibility filter after the Tera 2 migration.
 
 ## Running
 

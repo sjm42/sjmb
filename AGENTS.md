@@ -30,7 +30,7 @@ Use standard Rust style (4-space indentation, snake_case for functions/variables
 Run `cargo fmt` before opening a PR. Use `cargo clippy` to catch correctness/style issues early.
 
 ## Testing Guidelines
-There is currently no `tests/` directory. Unit tests live next to the code they cover, for example the channel-mode tracking tests in `src/ircbot.rs`. For new logic, add focused unit tests near the module (`mod tests`) or integration tests under `tests/` when behavior crosses modules. Validate at minimum with:
+There is currently no `tests/` directory. Unit tests live next to the code they cover, for example the channel-mode tracking and URL-template compatibility tests in `src/ircbot.rs`. For new logic, add focused unit tests near the module (`mod tests`) or integration tests under `tests/` when behavior crosses modules. Validate at minimum with:
 - `cargo check`
 - `cargo clippy --all-targets --all-features`
 - `cargo test`

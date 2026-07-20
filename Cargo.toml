@@ -2,7 +2,7 @@
 
 [package]
 name = "sjmb"
-version = "1.11.2"
+version = "1.11.3"
 authors = ["Sami J. Mäkinen <sjm@iki.fi>"]
 description = "IRC bot"
 repository = "https://github.com/sjm42/sjmb"
@@ -14,19 +14,9 @@ resolver = "2"
 
 
 [dependencies]
-# NOTE (brotli 8.0.3 build break): alloc-stdlib 0.2.3 / brotli-decompressor 5.0.2
-# allow alloc-no-stdlib 3.0.0 via a `>=2.0.4, <4` range, but brotli itself pins
-# 2.0.x; mixing the two versions fails to compile. There is NO Cargo.toml-only
-# fix: a `=2.0.4` pin here only adds a parallel node, while brotli-decompressor
-# still resolves 3.0.0 across the major boundary (Cargo won't unify majors).
-# The only working fix is a Cargo.lock pin that forces a single shared version:
-#     cargo update -p alloc-no-stdlib --precise 2.0.4
-# A plain `cargo update` undoes it, so re-run that command after updating until
-# brotli fixes this upstream.
-
 anyhow = "1"
 chrono = "0"
-chrono-tz = "0"
+chrono-tz = "0.10"
 clap = { version = "4", features = ["derive"] }
 futures = "0"
 irc = { version = "1.1", default-features = false, features = ["ctcp", "channel-lists", "toml_config", "encoding"] }
@@ -44,6 +34,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shellexpand = { version = "3", features = ["full"] }
+slug = "0.1"
 # do not enable TLS support for SQLx or connections will just hang
 # sjm 2025-07-28
 sqlx = { version = "0", default-features = false, features = [
@@ -52,7 +43,7 @@ sqlx = { version = "0", default-features = false, features = [
     "runtime-tokio",
     "postgres",
 ] }
-tera = "1"
+tera = "2"
 tokio = { version = "1", features = ["full"] }
 tracing = { version = "0", features = ["log"] }
 tracing-subscriber = "0"
