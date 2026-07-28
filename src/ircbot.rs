@@ -233,6 +233,15 @@ fn parse_namreply_user(name: &str) -> (String, ChannelUserModes) {
     (name[nick_start..].to_string(), modes)
 }
 
+fn welcome_nickname(command: &Command) -> Option<&str> {
+    match command {
+        Command::Response(Response::RPL_WELCOME, args) => {
+            args.first().map(String::as_str).filter(|nick| !nick.is_empty())
+        }
+        _ => None,
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UrlCmd {
     pub url_tmpl: String,
@@ -515,6 +524,9 @@ impl IrcBot {
         while let Some(message) = stream.next().await.transpose()? {
             trace!("Got msg: {message:?}");
 
+            // `Client::current_nickname()` is read before the stream processes a startup 433 and selects an
+            // alternate nick. The welcome response is the server's authoritative registration nick.
+            let welcome_nick = welcome_nickname(&message.command).map(str::to_owned);
             let (msg_nick, msg_user, msg_host) = if let Some(Prefix::Nickname(nick, user, host)) = message.prefix {
                 (nick, user, host)
             } else {
@@ -527,6 +539,12 @@ impl IrcBot {
                 state.msg_user = msg_user.clone();
                 state.msg_host = msg_host.clone();
                 state.msg_userhost = format!("{msg_user}@{msg_host}");
+                if let Some(welcome_nick) = welcome_nick {
+                    if state.my_nick != welcome_nick {
+                        info!("Server accepted alternate nick: {welcome_nick}");
+                    }
+                    state.my_nick = welcome_nick;
+                }
                 state.my_nick.clone()
             };
 
@@ -995,6 +1013,19 @@ async fn op_handle_urltitle(irc_sender: Arc<Sender>, url: String, channel: Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn welcome_response_reports_server_accepted_nickname() {
+        let message: Message = ":irc.example 001 sjmbot_ :Welcome to IRC"
+            .parse()
+            .expect("welcome should parse");
+        assert_eq!(welcome_nickname(&message.command), Some("sjmbot_"));
+
+        let message: Message = ":irc.example 002 sjmbot_ :Your host is irc.example"
+            .parse()
+            .expect("server info should parse");
+        assert_eq!(welcome_nickname(&message.command), None);
+    }
 
     #[test]
     fn namreply_tracks_operator_prefix() {
