@@ -41,6 +41,8 @@ async fn bot_cmd_setup(bot: Arc<IrcBot>) -> anyhow::Result<()> {
         .await;
     bot.register_privmsg_open(&config.cmd_mode_v, into_msg_handler(handle_open_cmd_mode_v))
         .await;
+    bot.register_privmsg_open(&config.cmd_version, into_msg_handler(handle_open_cmd_version))
+        .await;
 
     // these are restricted (privileged)
     bot.register_privmsg_priv(&config.cmd_dumpacl, into_msg_handler(handle_priv_cmd_dump_acl))
@@ -175,6 +177,12 @@ async fn handle_open_cmd_mode_v(bot: Arc<IrcBot>, _: String, _: String, _: Strin
     let nick = bot.state.read().await.msg_nick.clone();
     let channel = bot.config.read().await.channel.clone();
     bot.new_op(IrcOp::ModeVoice(channel, nick)).await
+}
+
+async fn handle_open_cmd_version(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {
+    let nick = bot.state.read().await.msg_nick.clone();
+    bot.new_msg(&nick, concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION")))
+        .await
 }
 
 async fn handle_priv_cmd_dump_acl(bot: Arc<IrcBot>, _: String, _: String, _: String) -> anyhow::Result<bool> {

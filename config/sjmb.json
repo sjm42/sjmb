@@ -44,6 +44,7 @@
   "cmd_nick": "nick",
   "cmd_reload": "reload",
   "cmd_say": "say",
+  "cmd_version": "version",
   "mode_o_acl": [
     "^user@example\\.com$"
   ],

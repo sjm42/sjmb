@@ -285,6 +285,8 @@ pub struct BotConfig {
     pub cmd_reload: String,
     // say something to a channel
     pub cmd_say: String,
+    // show the bot version
+    pub cmd_version: String,
     // Regex list for +o ACL
     pub mode_o_acl: Vec<String>,
     // Regex list for auto-op ACL
@@ -1051,6 +1053,19 @@ mod tests {
 
         modes.apply_modes("#test", &[Mode::Minus(ChannelMode::Oper, Some("alice".to_string()))]);
         assert!(!modes.has_oper("#test", "alice"));
+    }
+
+    #[test]
+    fn missing_version_command_uses_default() {
+        let mut config_json: serde_json::Value =
+            serde_json::from_str(include_str!("../config/sjmb.json")).expect("example bot config should be valid JSON");
+        config_json
+            .as_object_mut()
+            .expect("example bot config should be an object")
+            .remove("cmd_version");
+
+        let config: BotConfig = serde_json::from_value(config_json).expect("legacy bot config should deserialize");
+        assert_eq!(config.cmd_version, "version");
     }
 
     #[test]
