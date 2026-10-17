@@ -4,6 +4,9 @@
   "privileged_nicks": {
     "sjm": true
   },
+  "privileged_userhosts": {
+    "sjm": ["*@example.com"]
+  },
   "url_regex": "(https?://[\\w/',\":;!%@=\\-\\.\\~\\?\\#\\[\\]\\{\\}\\$\\&\\(\\)\\*\\+]+[^\\s'\"\\]\\}])",
   "url_log_db": "postgres:///url",
   "url_blacklist": [

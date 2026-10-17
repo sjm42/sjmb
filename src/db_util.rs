@@ -1,13 +1,13 @@
 // db_util.rs
 
-use anyhow::Context;
-use futures::TryStreamExt;
-use sqlx::{Pool, Postgres, postgres::PgPoolOptions};
+use sqlx::{
+    Pool, Postgres,
+    postgres::{PgConnectOptions, PgPoolOptions},
+};
 
 use crate::*;
 
-const RETRY_CNT: usize = 5;
-const RETRY_SLEEP: u64 = 1;
+const DB_JOB_TIMEOUT: Duration = Duration::from_secs(8);
 const DB_MAX_CONNECTIONS: u32 = 4;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -24,8 +24,8 @@ pub struct DbCtx {
     pub dbc: Pool<Postgres>,
 }
 
-impl std::fmt::Debug for DbCtx {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for DbCtx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DbCtx").finish_non_exhaustive()
     }
 }
@@ -43,10 +43,14 @@ where
     S: AsRef<str>,
 {
     debug!("start_db(): creating pool");
+    let options = db_url
+        .as_ref()
+        .parse::<PgConnectOptions>()?
+        .options([("statement_timeout", "5000"), ("lock_timeout", "1000")]);
     let dbc = PgPoolOptions::new()
         .max_connections(DB_MAX_CONNECTIONS)
-        .connect(db_url.as_ref())
-        .await?;
+        .acquire_timeout(Duration::from_secs(3))
+        .connect_lazy_with(options);
     let db = DbCtx { dbc };
     debug!("start_db(): pool created");
     Ok(db)
@@ -57,27 +61,10 @@ const SQL_INSERT_URL: &str = "insert into url (seen, channel, nick, url) \
 
 pub async fn db_add_url(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
     debug!("db_add_url({ur:?})");
-    for attempt in 1..=RETRY_CNT {
-        match db_add_url_once(db, ur).await {
-            Ok(rowcnt) => {
-                info!("db_add_url: Ok({rowcnt})");
-                return Ok(rowcnt);
-            }
-            Err(e) if attempt == RETRY_CNT => {
-                return Err(e)
-                    .with_context(|| format!("URL insert failed after {RETRY_CNT} attempts for channel {}", ur.chan));
-            }
-            Err(e) => {
-                warn!(
-                    "URL insert attempt {attempt}/{RETRY_CNT} failed for channel {}: {e:#}",
-                    ur.chan
-                );
-                sleep(Duration::new(RETRY_SLEEP, 0)).await;
-            }
-        }
-    }
-
-    unreachable!("retry loop always returns");
+    timeout(DB_JOB_TIMEOUT, db_add_url_once(db, ur))
+        .await
+        .context("URL insert timed out")?
+        .with_context(|| format!("URL insert failed for channel {}", ur.chan))
 }
 
 async fn db_add_url_once(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
@@ -105,12 +92,20 @@ const SQL_CHECK_URL: &str = "select count(id) as cnt, min(seen) as first, max(se
 
 pub async fn db_check_url(db: &DbCtx, url: &str, chan: &str, expire_s: i64) -> anyhow::Result<Option<CheckUrl>> {
     debug!("db_check_url(): url {url}");
-    let mut st_check_url = sqlx::query_as::<_, CheckUrl>(SQL_CHECK_URL)
-        .bind(url)
-        .bind(chan)
-        .bind(Utc::now().timestamp() - expire_s)
-        .fetch(&db.dbc);
-    let res = st_check_url.try_next().await?;
+    let since = Utc::now()
+        .timestamp()
+        .checked_sub(expire_s)
+        .context("URL expiry timestamp overflow")?;
+    let res = timeout(
+        DB_JOB_TIMEOUT,
+        sqlx::query_as::<_, CheckUrl>(SQL_CHECK_URL)
+            .bind(url)
+            .bind(chan)
+            .bind(since)
+            .fetch_optional(&db.dbc),
+    )
+    .await
+    .context("URL duplicate check timed out")??;
 
     info!("db_check_url: {res:?}");
     Ok(res)

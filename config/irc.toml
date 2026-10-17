@@ -7,6 +7,7 @@ realname = "my bot"
 server = "openirc.snt.utwente.nl"
 port = 6667
 proxy_type = "None"
+# TLS support is built in. Set use_tls = true and use the server's TLS port (usually 6697) to enable it.
 use_tls = false
 encoding = "UTF-8"
 channels = ["#chana", "#chanb"]

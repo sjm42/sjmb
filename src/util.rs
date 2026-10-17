@@ -1,7 +1,5 @@
 // util.rs
 
-use url::Url;
-
 use crate::*;
 
 const TS_FMT_LONG: &str = "%Y-%m-%d %H:%M:%S";
@@ -13,7 +11,16 @@ pub fn ts_fmt(fmt: &str, ts: i64) -> String {
     if ts == 0 {
         TS_NONE.to_string()
     } else {
-        DateTime::from_timestamp(ts, 0).map_or_else(|| TS_NONE.to_string(), |ts| ts.format(fmt).to_string())
+        DateTime::from_timestamp(ts, 0).map_or_else(
+            || TS_NONE.to_string(),
+            |ts| {
+                let mut result = String::new();
+                if write!(&mut result, "{}", ts.format(fmt)).is_err() {
+                    return TS_NONE.to_string();
+                }
+                result
+            },
+        )
     }
 }
 
@@ -51,108 +58,109 @@ pub fn get_wild<'a, T>(map: &'a HashMap<String, T>, key: &str) -> Option<&'a T> 
     map.get(key).or_else(|| map.get("*"))
 }
 
-const CONN_TIMEOUT: u64 = 5;
-const REQW_TIMEOUT: u64 = 10;
-
-pub async fn get_text_body(url_s: &str) -> anyhow::Result<Option<(String, String)>> {
-    let (body, ct) = get_body(url_s).await?;
-
-    if ct.starts_with("text/") {
-        Ok(Some((body, ct)))
-    } else {
-        debug!("Content-type ignored: {ct:?}");
-        Ok(None)
-    }
-}
-
-pub async fn get_body(url_s: &str) -> anyhow::Result<(String, String)> {
-    // We want a normalized and valid url, IDN handled etc.
-    let url = Url::parse(url_s)?;
-
-    let c = reqwest::ClientBuilder::new()
-        .connect_timeout(Duration::from_secs(CONN_TIMEOUT))
-        .timeout(Duration::from_secs(REQW_TIMEOUT))
-        .user_agent(format!(
-            "Rust/hyper/{} v{}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        ))
-        .use_rustls_tls()
-        .build()?;
-
-    let resp = c.get(url).send().await?.error_for_status()?;
-    let ct = String::from_utf8_lossy(
-        resp.headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .ok_or(anyhow!("No content-type in response"))?
-            .as_bytes(),
-    )
-        .to_string();
-
-    let body = resp.text().await?;
-    Ok((body, ct))
-}
-
 #[derive(Debug, Clone)]
 pub struct ReAcl {
-    pub acl_str: Vec<String>,
-    pub acl_re: Vec<Regex>,
+    rules: Vec<Regex>,
 }
 
 impl ReAcl {
-    pub fn new(list: &Vec<String>) -> anyhow::Result<Self> {
-        info!("Got {} entries.", list.len());
-        debug!("New ReAcl:\n{list:#?}");
-
-        // precompile every regex and save them
-        let mut acl_str = Vec::with_capacity(list.len());
-        let mut acl_re = Vec::with_capacity(list.len());
-        for s in list {
-            acl_str.push(s.to_owned());
-            acl_re.push(Regex::new(s)?);
-        }
-        Ok(Self { acl_str, acl_re })
+    pub fn new(list: &[String]) -> anyhow::Result<Self> {
+        let rules = list.iter().map(|s| Regex::new(s)).collect::<Result<_, _>>()?;
+        Ok(Self { rules })
     }
+
+    pub fn patterns(&self) -> impl Iterator<Item = &str> {
+        self.rules.iter().map(Regex::as_str)
+    }
+
     pub fn re_match(&self, text: &str) -> Option<(usize, String)> {
-        for (i, re) in self.acl_re.iter().enumerate() {
-            if re.is_match(text) {
-                // return index of match along with the matched regex string
-                return Some((i, self.acl_str[i].to_string()));
-            }
-        }
-        None
+        self.rules
+            .iter()
+            .enumerate()
+            .find(|(_, re)| re.is_match(text))
+            .map(|(i, re)| (i, re.as_str().to_owned()))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ReMut {
-    pub re_str: Vec<(String, String)>,
-    pub re_vec: Vec<Regex>,
+    rules: Vec<(Regex, String)>,
 }
 
 impl ReMut {
-    pub fn new(list: &Vec<(String, String)>) -> anyhow::Result<Self> {
-        info!("Got {} entries.", list.len());
-        debug!("New ReMut:\n{list:#?}");
-
-        // precompile every regex and save them
-        let mut re_str = Vec::with_capacity(list.len());
-        let mut re_vec = Vec::with_capacity(list.len());
-        for (s, r) in list {
-            re_str.push((s.to_owned(), r.to_owned()));
-            re_vec.push(Regex::new(s)?);
-        }
-        Ok(Self { re_str, re_vec })
+    pub fn new(list: &[(String, String)]) -> anyhow::Result<Self> {
+        let rules = list
+            .iter()
+            .map(|(pattern, replacement)| Ok((Regex::new(pattern)?, replacement.clone())))
+            .collect::<anyhow::Result<_>>()?;
+        Ok(Self { rules })
     }
+
     pub fn re_mut(&self, text: &str) -> Option<(usize, String)> {
-        for (i, re) in self.re_vec.iter().enumerate() {
-            if re.is_match(text) {
-                // return index of match along with the mutated string
-                return Some((i, re.replace(text, &self.re_str[i].1).to_string()));
-            }
-        }
-        None
+        self.rules
+            .iter()
+            .enumerate()
+            .find(|(_, (re, _))| re.is_match(text))
+            .map(|(i, (re, replacement))| (i, re.replace(text, replacement).into_owned()))
     }
 }
 
-// EOF
+/// Whole-string wildcard masks: `*` matches any string; `?` matches one character.
+pub fn wildcard_regex(mask: &str) -> anyhow::Result<Regex> {
+    let mut pattern = String::from("\\A(?:");
+    for ch in mask.chars() {
+        match ch {
+            '*' => pattern.push_str(".*"),
+            '?' => pattern.push('.'),
+            _ => pattern.push_str(&regex::escape(&ch.to_string())),
+        }
+    }
+    pattern.push_str(")\\z");
+    Ok(Regex::new(&pattern)?)
+}
+
+/// One bounded IRC payload, without embedded protocol/control characters.
+pub fn irc_text(text: &str, max_bytes: usize) -> String {
+    let mut result = String::new();
+    let mut space = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            space = !result.is_empty();
+        } else if !ch.is_control() {
+            if result.len() + ch.len_utf8() + usize::from(space) > max_bytes {
+                break;
+            }
+            if space {
+                result.push(' ');
+                space = false;
+            }
+            result.push(ch);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wildcard_masks_are_anchored_and_escape_regex_characters() {
+        let re = wildcard_regex("~?ser@*.example.com").unwrap();
+        assert!(re.is_match("~user@host.example.com"));
+        assert!(!re.is_match("~user@host.example.com.evil"));
+        assert!(!wildcard_regex("u@a.b").unwrap().is_match("u@axb"));
+    }
+
+    #[test]
+    fn output_bounds_unicode_and_removes_embedded_commands() {
+        assert_eq!(irc_text("a\r\nPRIVMSG x :oops\u{1} ", 100), "a PRIVMSG x :oops");
+        assert_eq!(irc_text("ééé", 5), "éé");
+    }
+
+    #[test]
+    fn invalid_timestamp_formats_return_a_placeholder() {
+        assert_eq!(ts_fmt("%", 1), "(none)");
+        assert_eq!(ts_fmt("%Y", i64::MAX), "(none)");
+    }
+}

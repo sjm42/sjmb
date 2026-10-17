@@ -1,6 +1,6 @@
 // bin/sjmb.rs
 
-use clap::Parser;
+#![forbid(unsafe_code)]
 
 use sjmb::*;
 
@@ -8,21 +8,38 @@ use sjmb::*;
 async fn main() -> anyhow::Result<()> {
     let mut opts = OptsCommon::parse();
     opts.finalize()?;
-    opts.start_pgm(env!("CARGO_BIN_NAME"));
+    opts.start_pgm(env!("CARGO_BIN_NAME"))?;
 
+    // Fail clearly for invalid startup configuration; network failures are retried below.
+    BotConfig::new(&opts.bot_config)?;
+    load_irc_config(&opts.irc_config)?;
+    let mut backoff = 2u64;
     loop {
-        let (bot, irc_stream) = IrcBot::new(&opts).await?;
-        let ircbot = Arc::new(bot);
-        bot_cmd_setup(ircbot.clone()).await?;
-
-        if let Err(e) = ircbot.run(irc_stream).await {
-            error!("{e}");
+        let started = Instant::now();
+        select! {
+            result = run_session(&opts) => {
+                if let Err(error) = result { error!("IRC session ended: {error:#}"); }
+            }
+            result = ctrl_c() => { result?; return Ok(()); }
         }
-
-        error!("Sleeping 10s...");
-        sleep(Duration::from_secs(10)).await;
-        error!("Retrying start");
+        if started.elapsed() >= Duration::from_secs(60) {
+            backoff = 2;
+        }
+        let delay = Duration::from_millis(backoff * 1000 + rand::random_range(0..=1000));
+        warn!("Reconnecting in {} seconds", delay.as_secs_f32());
+        select! {
+            _ = sleep(delay) => {},
+            result = ctrl_c() => { result?; return Ok(()); }
+        }
+        backoff = (backoff * 2).min(30);
     }
+}
+
+async fn run_session(opts: &OptsCommon) -> anyhow::Result<()> {
+    let (bot, stream) = IrcBot::new(opts).await?;
+    let bot = Arc::new(bot);
+    bot_cmd_setup(bot.clone()).await?;
+    bot.run(stream).await
 }
 
 async fn bot_cmd_setup(bot: Arc<IrcBot>) -> anyhow::Result<()> {
@@ -74,13 +91,13 @@ async fn handle_join(bot: Arc<IrcBot>, cmd: Command) -> anyhow::Result<bool> {
         let acl_resp = config
             .auto_o_acl_rt
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
+            .ok_or_else(|| anyhow!("no auto_o_acl_rt"))?
             .re_match(&userhost);
         (state.msg_nick.clone(), userhost, state.my_nick.clone(), acl_resp)
     };
 
     info!("JOIN <{nick}> {userhost} {channel}",);
-    if nick == my_nick {
+    if bot.same_nick(&nick, &my_nick).await {
         // Ignore self join :p
         return Ok(false);
     }
@@ -111,7 +128,7 @@ async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: Strin
         .await
         .invite_bl_userhost_rt
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no invite_bl_userhost_rt"))?
+        .ok_or_else(|| anyhow!("no invite_bl_userhost_rt"))?
         .re_match(&userhost);
     if let Some((i, s)) = acl_resp_u {
         info!("ACL match userhost \"{userhost}\" at index {i}: {s}");
@@ -125,7 +142,7 @@ async fn handle_open_cmd_invite(bot: Arc<IrcBot>, _: String, _: String, _: Strin
         .await
         .invite_bl_nick_rt
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no invite_bl_nick_rt"))?
+        .ok_or_else(|| anyhow!("no invite_bl_nick_rt"))?
         .re_match(&nick);
     if let Some((i, s)) = acl_resp_n {
         info!("ACL match nick \"{nick}\" at index {i}: {s}");
@@ -154,7 +171,7 @@ async fn handle_open_cmd_mode_o(bot: Arc<IrcBot>, _: String, _: String, _: Strin
         .await
         .mode_o_acl_rt
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
+        .ok_or_else(|| anyhow!("no mode_o_acl_rt"))?
         .re_match(&userhost);
     debug!(
         "ACL check took {} µs.",
@@ -193,15 +210,17 @@ async fn handle_priv_cmd_dump_acl(bot: Arc<IrcBot>, _: String, _: String, _: Str
         let mode_o_acl = config
             .mode_o_acl_rt
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("no mode_o_acl_rt"))?
-            .acl_str
-            .clone();
+            .ok_or_else(|| anyhow!("no mode_o_acl_rt"))?
+            .patterns()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
         let auto_o_acl = config
             .auto_o_acl_rt
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("no auto_o_acl_rt"))?
-            .acl_str
-            .clone();
+            .ok_or_else(|| anyhow!("no auto_o_acl_rt"))?
+            .patterns()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
 
         let mut staged_msgs = Vec::with_capacity(mode_o_acl.len() + auto_o_acl.len() + 4);
         staged_msgs.push("My +o ACL:".to_string());
@@ -233,16 +252,7 @@ async fn handle_priv_cmd_reload(bot: Arc<IrcBot>, _: String, _: String, _: Strin
     // *** Try reloading all runtime configs ***
     error!("*** RELOADING CONFIG ***");
     let nick = bot.state.read().await.msg_nick.clone();
-    match bot.clone().reload().await {
-        Ok(ret) => {
-            bot.new_msg(&nick, "*** Reload successful.").await?;
-            Ok(ret)
-        }
-        Err(e) => {
-            bot.new_msg(&nick, &format!("*** Reload failed: {}", e)).await?;
-            Err(e)
-        }
-    }
+    bot.new_op(IrcOp::Reload(nick)).await
 }
 
 async fn handle_priv_cmd_say(bot: Arc<IrcBot>, _: String, _: String, say: String) -> anyhow::Result<bool> {
