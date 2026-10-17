@@ -16,6 +16,7 @@ const MAX_URLS_PER_MESSAGE: usize = 4;
 const MAX_FETCH_REPLIES: usize = 4;
 const OUTPUT_BATCH: usize = 16;
 const OUTPUT_ACK_TIMEOUT: Duration = Duration::from_secs(20);
+const IRC_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_QUEUE_AGE: Duration = Duration::from_secs(180);
 
 task_local! {
@@ -544,6 +545,7 @@ pub struct BotHandlers {
 
 pub struct BotState {
     pub my_nick: String,
+    pub registered_since: Option<Instant>,
     pub msg_nick: String,
     pub msg_user: String,
     pub msg_host: String,
@@ -609,6 +611,7 @@ impl IrcBot {
                 config: RwLock::new(bot_cfg),
                 state: RwLock::new(BotState {
                     my_nick,
+                    registered_since: None,
                     msg_nick: "NONE".into(),
                     msg_user: "NONE".into(),
                     msg_host: "NONE".into(),
@@ -723,7 +726,7 @@ impl IrcBot {
         let mut gate = OutputGate::default();
         let mut ready = true;
         let mut next_send = Instant::now();
-        let registration_deadline = Instant::now() + Duration::from_secs(30);
+        let registration_deadline = Instant::now() + IRC_REGISTRATION_TIMEOUT;
         let mut registered = false;
         let mut report = interval(Duration::from_secs(30));
         loop {
@@ -745,6 +748,7 @@ impl IrcBot {
                         let old_nick = state.my_nick.clone();
                         if let Some(nick) = welcome_nickname(&message.command) {
                             registered = true;
+                            state.registered_since.get_or_insert_with(Instant::now);
                             state.my_nick = nick.to_owned();
                         } else if let Command::NICK(nick) = &message.command && mapping.eq(&msg_nick, &old_nick) {
                             state.my_nick = nick.clone();

@@ -15,15 +15,11 @@ async fn main() -> anyhow::Result<()> {
     load_irc_config(&opts.irc_config)?;
     let mut backoff = 2u64;
     loop {
-        let started = Instant::now();
         select! {
-            result = run_session(&opts) => {
+            result = run_session(&opts, &mut backoff) => {
                 if let Err(error) = result { error!("IRC session ended: {error:#}"); }
             }
             result = ctrl_c() => { result?; return Ok(()); }
-        }
-        if started.elapsed() >= Duration::from_secs(60) {
-            backoff = 2;
         }
         let delay = Duration::from_millis(backoff * 1000 + rand::random_range(0..=1000));
         warn!("Reconnecting in {} seconds", delay.as_secs_f32());
@@ -35,11 +31,21 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn run_session(opts: &OptsCommon) -> anyhow::Result<()> {
+async fn run_session(opts: &OptsCommon, backoff: &mut u64) -> anyhow::Result<()> {
     let (bot, stream) = IrcBot::new(opts).await?;
     let bot = Arc::new(bot);
     bot_cmd_setup(bot.clone()).await?;
-    bot.run(stream).await
+    let result = bot.clone().run(stream).await;
+    if bot
+        .state
+        .read()
+        .await
+        .registered_since
+        .is_some_and(|started| started.elapsed() >= Duration::from_secs(60))
+    {
+        *backoff = 2;
+    }
+    result
 }
 
 async fn bot_cmd_setup(bot: Arc<IrcBot>) -> anyhow::Result<()> {

@@ -125,8 +125,9 @@ cargo run --bin sjmb -- --verbose
 ```
 
 The bot reconnects after connection, registration, or session failures, reloading its state on each attempt. Connection
-and registration each have a 30-second deadline. Retry delays grow from 2 to 30 seconds with up to one second of jitter,
-resetting after a session lasts at least a minute. The serial worker is scoped to its session and is cancelled when
+setup has a 30-second deadline, and IRC registration has a 60-second deadline. Retry delays grow from 2 to 30 seconds
+with up to one second of jitter, resetting after the bot has been registered for at least a minute.
+The serial worker is scoped to its session and is cancelled when
 that session ends. Invalid initial configuration fails clearly. Runtime config can be reloaded with the configured
 private-message reload command.
 
