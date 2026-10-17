@@ -65,11 +65,15 @@ leaves the working settings intact.
 ## Resource and network limits
 
 One serial application worker handles incoming callbacks and queued operations. The socket loop continues processing IRC
-while that worker is waiting for HTTP or PostgreSQL. Input, operation, and output queues each hold 42 items. When a queue
-is full, new work is discarded. Queued requests, operations, and replies expire three minutes after their original
-request; moving between queues does not reset that deadline. Work already started may finish, but late replies are
-discarded. Aggregate overflow and expiry counts are logged every 30 seconds at error level. There are no
-per-user or per-channel request budgets. Outgoing text is normalized to one line and limited to 400 UTF-8 bytes (or less
+while that worker is waiting for HTTP or PostgreSQL. The input queue holds 256 application events; operation and output
+queues each hold 42 items. Server replies used only for protocol or membership tracking do not enter the worker queue.
+The JOIN callback subscribes only to JOIN events; chat messages are also delivered to the worker. Generic library
+callbacks can use `register_irc_cmd_for` to select commands, or `register_irc_cmd` to receive all commands.
+When a queue is full, new work is discarded. Queued requests, operations, and replies expire three minutes after their
+original request; moving between queues does not reset that deadline. Work already started may finish, but late replies
+are discarded. Overflow counts identify the input, operation, or output queue; aggregate overflow and expiry counts are
+logged every 30 seconds at error level. There are no per-user or per-channel request budgets.
+Outgoing text is normalized to one line and limited to 400 UTF-8 bytes (or less
 when the target requires more space). Each channel message examines at most four URL matches; each URL command produces
 at most four matching replies.
 
@@ -132,6 +136,8 @@ that session ends. Invalid initial configuration fails clearly. Runtime config c
 private-message reload command.
 
 Logging defaults to errors only. Use `--verbose`, `--debug`, or `--trace` to increase log detail.
+The selected level applies to `sjmb` code; dependencies follow that level up to INFO. Thus `-v` retains INFO logging
+throughout, while `--debug` and `--trace` add detail only from this application and keep dependencies at INFO.
 
 ## Building
 

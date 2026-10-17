@@ -34,7 +34,7 @@ pub use tokio::{
     time::{Duration, Instant, interval, sleep, sleep_until, timeout},
 };
 pub use tracing::{Level, debug, error, info, trace, warn};
-pub use tracing_subscriber::fmt as tracing_fmt;
+pub use tracing_subscriber::{filter::Targets, fmt as tracing_fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[cfg(test)]
 pub use std::{env, fs, future::pending, io::Write as IoWrite, path::PathBuf, process, sync::atomic::AtomicBool};
@@ -46,6 +46,8 @@ pub use tokio::{
     sync::Notify,
     task::JoinHandle,
 };
+#[cfg(test)]
+pub use tracing::subscriber::with_default;
 
 pub use crate::{config::*, db_util::*, html_title::*, http_fetch::*, irc_case::*, ircbot::*, util::*};
 

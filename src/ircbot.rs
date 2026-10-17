@@ -11,6 +11,7 @@ const INITIAL_HANDLERS: usize = 8;
 const IRC_OP_THROTTLE: u64 = 2500;
 const IRC_OP_THROTTLE_JITTER: u64 = 1000;
 const IRC_MSG_THROTTLE: u64 = 1500;
+const IRC_INPUT_QUEUE_CAPACITY: usize = 256;
 const IRC_QUEUE_CAPACITY: usize = 42;
 const MAX_URLS_PER_MESSAGE: usize = 4;
 const MAX_FETCH_REPLIES: usize = 4;
@@ -30,6 +31,12 @@ struct Queued<T> {
 }
 
 pub type CmdHandler = Arc<dyn Fn(Arc<IrcBot>, Command) -> BoxFuture<'static, anyhow::Result<bool>> + Send + Sync>;
+
+#[derive(Clone)]
+struct FilteredCmdHandler {
+    accepts: fn(&Command) -> bool,
+    handler: CmdHandler,
+}
 
 pub fn into_cmd_handler<Fut: Future<Output = anyhow::Result<bool>> + Send + 'static>(
     f: impl Fn(Arc<IrcBot>, Command) -> Fut + Send + Sync + 'static,
@@ -537,7 +544,7 @@ fn read_config_file(path: &str) -> anyhow::Result<Vec<u8>> {
 }
 
 pub struct BotHandlers {
-    handlers_irc_cmd: Vec<CmdHandler>,
+    handlers_irc_cmd: Vec<FilteredCmdHandler>,
     handlers_privmsg_open: HashMap<String, MsgHandler>,
     handlers_privmsg_priv: HashMap<String, MsgHandler>,
     handlers_chanmsg: HashMap<String, MsgHandler>,
@@ -564,7 +571,9 @@ pub struct IrcBot {
     channel_modes: Arc<RwLock<ChannelModes>>,
     queues: Mutex<Option<WorkerQueues>>,
     http: HttpFetcher,
-    discarded: AtomicUsize,
+    discarded_input: AtomicUsize,
+    discarded_ops: AtomicUsize,
+    discarded_output: AtomicUsize,
     expired: AtomicUsize,
 }
 
@@ -630,7 +639,9 @@ impl IrcBot {
                 channel_modes,
                 queues: Mutex::new(Some(WorkerQueues { ops, output, sender })),
                 http,
-                discarded: AtomicUsize::new(0),
+                discarded_input: AtomicUsize::new(0),
+                discarded_ops: AtomicUsize::new(0),
+                discarded_output: AtomicUsize::new(0),
                 expired: AtomicUsize::new(0),
             },
             irc.stream()?,
@@ -678,7 +689,16 @@ impl IrcBot {
     }
 
     pub async fn register_irc_cmd(&self, handler: CmdHandler) {
-        self.handlers.write().await.handlers_irc_cmd.push(handler);
+        self.register_irc_cmd_for(|_| true, handler).await;
+    }
+
+    /// Filter callbacks before queuing so unused protocol replies cannot crowd out application events.
+    pub async fn register_irc_cmd_for(&self, accepts: fn(&Command) -> bool, handler: CmdHandler) {
+        self.handlers
+            .write()
+            .await
+            .handlers_irc_cmd
+            .push(FilteredCmdHandler { accepts, handler });
     }
 
     pub async fn register_privmsg_priv(&self, cmd: &str, handler: MsgHandler) {
@@ -707,7 +727,7 @@ impl IrcBot {
 
     pub async fn run(self: Arc<Self>, stream: irc::client::ClientStream) -> anyhow::Result<()> {
         let queues = self.queues.lock().await.take().context("IRC session already running")?;
-        let (incoming_tx, incoming_rx) = mpsc::channel(IRC_QUEUE_CAPACITY);
+        let (incoming_tx, incoming_rx) = mpsc::channel(IRC_INPUT_QUEUE_CAPACITY);
         // Scoped futures: returning from either drops/cancels the other and its old queues.
         // No detached worker survives reconnect, and there is only one application worker.
         select! {
@@ -756,10 +776,17 @@ impl IrcBot {
                         old_nick
                     };
                     self.track_channel_modes(&message.command, &msg_nick, &my_nick).await?;
+                    // Protocol handling and membership tracking always happen above. Only messages
+                    // used by the application need space in its bounded input queue.
+                    if !matches!(message.command, Command::PRIVMSG(..))
+                        && !self.handlers.read().await.handlers_irc_cmd.iter().any(|handler| (handler.accepts)(&message.command))
+                    {
+                        continue;
+                    }
                     let memberships = if matches!(message.command, Command::JOIN(..) | Command::PRIVMSG(..)) {
                         self.channel_modes.read().await.memberships(&msg_nick)
                     } else { HashMap::new() };
-                    self.enqueue(&incoming, Incoming { message, my_nick, memberships })?;
+                    self.enqueue(&incoming, Incoming { message, my_nick, memberships }, &self.discarded_input)?;
                 }
                 item = output.recv(), if ready && registered && gate.waiting.is_none() => {
                     let item = item.context("IRC output queue closed")?;
@@ -791,8 +818,14 @@ impl IrcBot {
                 _ = sleep_until(ack_deadline), if gate.waiting.is_some() => bail!("IRC output checkpoint timed out"),
                 _ = sleep_until(registration_deadline), if !registered => bail!("IRC registration timed out"),
                 _ = report.tick() => {
-                    let count = self.discarded.swap(0, AtomicOrdering::Relaxed);
-                    if count != 0 { error!("Discarded {count} requests or replies because a bounded queue was full"); }
+                    for (queue, capacity, discarded) in [
+                        ("input", IRC_INPUT_QUEUE_CAPACITY, &self.discarded_input),
+                        ("operation", IRC_QUEUE_CAPACITY, &self.discarded_ops),
+                        ("output", IRC_QUEUE_CAPACITY, &self.discarded_output),
+                    ] {
+                        let count = discarded.swap(0, AtomicOrdering::Relaxed);
+                        if count != 0 { error!("Discarded {count} items because the IRC {queue} queue was full (capacity {capacity})"); }
+                    }
                     let count = self.expired.swap(0, AtomicOrdering::Relaxed);
                     if count != 0 { error!("Discarded {count} requests or replies because their queue deadline expired"); }
                 }
@@ -853,7 +886,10 @@ impl IrcBot {
         }
         let handlers = self.handlers.read().await.handlers_irc_cmd.clone();
         for handler in handlers {
-            match handler(self.clone(), message.command.clone()).await {
+            if !(handler.accepts)(&message.command) {
+                continue;
+            }
+            match (handler.handler)(self.clone(), message.command.clone()).await {
                 Ok(true) => break,
                 Err(error) => error!("IRC callback failed: {error:#}"),
                 _ => {}
@@ -880,7 +916,7 @@ impl IrcBot {
         }
     }
 
-    fn enqueue<T>(&self, sender: &mpsc::Sender<Queued<T>>, item: T) -> anyhow::Result<bool> {
+    fn enqueue<T>(&self, sender: &mpsc::Sender<Queued<T>>, item: T, discarded: &AtomicUsize) -> anyhow::Result<bool> {
         let expires_at = REQUEST_DEADLINE
             .try_with(|deadline| *deadline)
             .unwrap_or_else(|_| Instant::now() + MAX_QUEUE_AGE);
@@ -891,7 +927,7 @@ impl IrcBot {
         match sender.try_send(Queued { expires_at, item }) {
             Ok(()) => Ok(true),
             Err(mpsc::error::TrySendError::Full(_)) => {
-                self.discarded.fetch_add(1, AtomicOrdering::Relaxed);
+                discarded.fetch_add(1, AtomicOrdering::Relaxed);
                 Ok(false)
             }
             Err(mpsc::error::TrySendError::Closed(_)) => bail!("IRC worker queue closed"),
@@ -945,7 +981,7 @@ impl IrcBot {
             None
         };
         let sender = self.state.read().await.op_sender.clone();
-        self.enqueue(&sender, OpEnvelope { op, membership })
+        self.enqueue(&sender, OpEnvelope { op, membership }, &self.discarded_ops)
     }
 
     pub async fn new_msg(self: Arc<Self>, target: &str, msg: &str) -> anyhow::Result<bool> {
@@ -961,12 +997,13 @@ impl IrcBot {
                 target: target.into(),
                 msg,
             }),
+            &self.discarded_output,
         )
     }
 
     async fn output_op(&self, command: Command, membership: Option<Membership>) -> anyhow::Result<bool> {
         let sender = self.state.read().await.msg_sender.clone();
-        self.enqueue(&sender, IrcOutput::Op(command, membership))
+        self.enqueue(&sender, IrcOutput::Op(command, membership), &self.discarded_output)
     }
 
     // Process private messages here and return true only if something was reacted upon
@@ -1403,9 +1440,133 @@ mod tests {
             assert!(bot.clone().new_msg("#test", "message").await.unwrap());
         }
         assert!(!bot.clone().new_msg("#test", "discarded").await.unwrap());
-        assert_eq!(bot.discarded.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(bot.discarded_output.load(AtomicOrdering::Relaxed), 1);
         drop(bot.queues.lock().await.take());
         assert!(bot.clone().new_msg("#test", "closed").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn startup_reply_bursts_do_not_fill_worker_queue_and_real_input_overflow_stays_bounded() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = TestConfig::new();
+        let (bot, stream) = config
+            .bot(Config {
+                nickname: Some("testbot".into()),
+                server: Some("127.0.0.1".into()),
+                port: Some(listener.local_addr().unwrap().port()),
+                use_tls: Some(false),
+                ..Default::default()
+            })
+            .await;
+        bot.register_irc_cmd_for(
+            |command| matches!(command, Command::JOIN(..)),
+            into_cmd_handler(|_, _| async { Ok(false) }),
+        )
+        .await;
+        let queues = bot.queues.lock().await.take().unwrap();
+        let (incoming_tx, mut incoming) = mpsc::channel(IRC_INPUT_QUEUE_CAPACITY);
+        // Leave the worker queue undrained to simulate a slow HTTP or database operation.
+        let run = spawn(bot.clone().drive_irc(stream, queues.output, queues.sender, incoming_tx));
+        let (socket, _) = listener.accept().await.unwrap();
+        let mut socket = BufReader::new(socket);
+
+        let channels = 32;
+        let mut startup =
+            String::from(":server 001 testbot :Welcome\r\n:server 005 testbot CASEMAPPING=ascii :supported\r\n");
+        for channel in 0..channels {
+            startup.push_str(&format!(":testbot!u@h JOIN #startup{channel}\r\n"));
+            for chunk in 0..16 {
+                startup.push_str(&format!(
+                    ":server 353 testbot = #startup{channel} :testbot alice user{chunk}\r\n"
+                ));
+            }
+            startup.push_str(&format!(":operator!u@h MODE #startup{channel} +o alice\r\n"));
+        }
+        startup.push_str(":alice!u@h NICK ALICE\r\n:ALICE!u@h PRIVMSG #startup0 :hello\r\n");
+        let mut flood = String::new();
+        for message in 0..IRC_INPUT_QUEUE_CAPACITY + 5 {
+            flood.push_str(&format!(":chat!u@h PRIVMSG #startup0 :message{message}\r\n"));
+        }
+        for (mut body, token, expected_items, expected_drops) in [
+            (startup, "startup-complete", channels + 1, 0),
+            (flood, "overload-complete", IRC_INPUT_QUEUE_CAPACITY, 5),
+        ] {
+            body.push_str(&format!("PING :{token}\r\n"));
+            socket.get_mut().write_all(body.as_bytes()).await.unwrap();
+            timeout(Duration::from_secs(3), async {
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    assert_ne!(socket.read_line(&mut line).await.unwrap(), 0);
+                    if line.contains(&format!("PONG {token}")) {
+                        break;
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(bot.discarded_input.load(AtomicOrdering::Relaxed), expected_drops);
+            assert_eq!(bot.discarded_ops.load(AtomicOrdering::Relaxed), 0);
+            assert_eq!(bot.discarded_output.load(AtomicOrdering::Relaxed), 0);
+            for index in 0..expected_items {
+                let event = incoming.try_recv().unwrap().item;
+                if token == "startup-complete" {
+                    assert!(matches!(
+                        event.message.command,
+                        Command::JOIN(..) | Command::PRIVMSG(..)
+                    ));
+                } else {
+                    let Command::PRIVMSG(_, text) = event.message.command else {
+                        panic!("expected chat message");
+                    };
+                    assert_eq!(text, format!("message{index}"));
+                }
+            }
+            assert!(incoming.try_recv().is_err());
+        }
+        {
+            let modes = bot.channel_modes.read().await;
+            assert_eq!(modes.case_mapping, CaseMapping::Ascii);
+            for channel in 0..channels {
+                assert!(modes.has_oper(&format!("#STARTUP{channel}"), "ALICE"));
+                assert!(modes.membership(&format!("#startup{channel}"), "user15").is_some());
+            }
+        }
+        assert!(bot.state.read().await.registered_since.is_some());
+        drop(socket);
+        timeout(Duration::from_secs(3), run).await.unwrap().unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn unfiltered_command_callbacks_still_receive_server_replies() {
+        let config = TestConfig::new();
+        let (bot, stream) = config
+            .bot(Config {
+                nickname: Some("testbot".into()),
+                use_mock_connection: true,
+                mock_initial_value: Some(":server 372 testbot :MOTD line\r\n".into()),
+                ..Default::default()
+            })
+            .await;
+        let called = Arc::new(AtomicBool::new(false));
+        let seen = called.clone();
+        bot.register_irc_cmd(into_cmd_handler(move |_, command| {
+            let seen = seen.clone();
+            async move {
+                assert!(matches!(command, Command::Response(Response::RPL_MOTD, _)));
+                seen.store(true, AtomicOrdering::Relaxed);
+                Ok(false)
+            }
+        }))
+        .await;
+        let queues = bot.queues.lock().await.take().unwrap();
+        let (tx, mut incoming) = mpsc::channel(IRC_INPUT_QUEUE_CAPACITY);
+        bot.clone()
+            .drive_irc(stream, queues.output, queues.sender, tx)
+            .await
+            .unwrap();
+        bot.handle_message(incoming.try_recv().unwrap().item).await.unwrap();
+        assert!(called.load(AtomicOrdering::Relaxed));
     }
 
     #[tokio::test]
@@ -1416,7 +1577,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(1);
         REQUEST_DEADLINE
             .scope(deadline, async {
-                assert!(bot.enqueue(&tx, "request").unwrap());
+                assert!(bot.enqueue(&tx, "request", &bot.discarded_input).unwrap());
             })
             .await;
         let (original, request) = bot.take_fresh(rx.try_recv().unwrap()).unwrap();

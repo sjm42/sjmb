@@ -52,7 +52,11 @@ async fn bot_cmd_setup(bot: Arc<IrcBot>) -> anyhow::Result<()> {
     bot.clear_handlers().await;
 
     // Register JOIN callback
-    bot.register_irc_cmd(into_cmd_handler(handle_join)).await;
+    bot.register_irc_cmd_for(
+        |command| matches!(command, Command::JOIN(..)),
+        into_cmd_handler(handle_join),
+    )
+    .await;
 
     // ### Register commands
     let config = bot.config.read().await;
