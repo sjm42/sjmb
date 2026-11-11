@@ -76,6 +76,7 @@ async fn db_add_url_once(db: &DbCtx, ur: &UrlCtx) -> anyhow::Result<u64> {
         .execute(&db.dbc)
         .await?;
 
+    info!("Urllog: inserted {} row(s)", res.rows_affected());
     Ok(res.rows_affected())
 }
 
